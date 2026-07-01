@@ -1,0 +1,27 @@
+[project]
+name = "ailottery-relayer"
+version = "0.1.0"
+description = "Off-chain economy engine + relayer for the AI-Agent Oracle Lottery: drives rounds, invokes & pays the Platon/Chronos/LUMEN oracles, runs the Hub altruistic tithe and the UNI external benefactor, and feeds the Alien Monitor."
+requires-python = ">=3.11"
+dependencies = [
+    "web3>=6.15,<7",
+    "eth-account>=0.11,<0.14",
+    "eth-abi>=4.2,<6",
+    "httpx>=0.26",
+    "pyyaml>=6.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5"]
+
+[project.scripts]
+ailottery-relayer = "ailottery_relayer.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ailottery_relayer"]
