@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ablation — Systemic Cascade Risk</title>
+<style>
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;cursor:default}
+  canvas{display:block;background:transparent}
+  .ui{position:fixed;left:28px;top:22px;font-family:"Iowan Old Style",Georgia,serif;
+       color:#ffe7cf;pointer-events:none;text-shadow:0 0 18px rgba(255,138,46,.45)}
+  .ui h1{margin:0;font-size:30px;letter-spacing:.42em;font-weight:500;
+         background:linear-gradient(90deg,#ffd36b,#ff7a2d,#ff2d4a);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .ui p{margin:.5em 0 0;font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.22em;color:#a8744e;opacity:.85}
+  .hud{position:fixed;right:26px;bottom:20px;font-family:ui-monospace,Menlo,monospace;font-size:11px;
+       letter-spacing:.12em;color:#a8744e;opacity:.85;text-align:right;pointer-events:none;white-space:pre}
+  .plotlbl{position:fixed;font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.18em;color:#6e5238;opacity:.8;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="ui"><h1>ABLATION</h1><p>ABELIAN SANDPILE · SELF-ORGANIZED CRITICALITY · THE HEAVY TAIL</p></div>
+<div class="hud" id="hud"></div>
+<script>
+const cv=document.getElementById("c"),x=cv.getContext("2d"),hud=document.getElementById("hud");
+let W,H,DPR;
+function splitmix(seed){let s=BigInt(seed)&0xFFFFFFFFFFFFFFFFn;return function(){
+  s=(s+0x9E3779B97F4A7C15n)&0xFFFFFFFFFFFFFFFFn;let z=s;
+  z=((z^(z>>30n))*0xBF58476D1CE4E5B9n)&0xFFFFFFFFFFFFFFFFn;
+  z=((z^(z>>27n))*0x94D049BB133111EBn)&0xFFFFFFFFFFFFFFFFn;
+  z^=z>>31n;return Number(z&0xFFFFFFFFn)/4294967296;};}
+
+// ---- Sandpile on a square lattice with open boundary (grains leak off the edge) ----
+let L=26, N, load, thr, gx, gy, rng, sizes=[], hist={}, maxSize=1, toppleTot=0, grains=0;
+let avalanche=[], breathT=0;
+function setupLattice(seed){
+  rng=splitmix(seed);
+  N=L*L; load=new Int16Array(N); thr=new Int8Array(N);
+  for(let r=0;r<L;r++)for(let c=0;c<L;c++){
+    // open-boundary BTW: threshold 4 everywhere; edge cells have fewer neighbours so
+    // they dissipate the surplus off the lattice — the engine the oracle runs, in miniature.
+    thr[r*L+c]=4;
+  }
+  sizes=[];hist={};maxSize=1;toppleTot=0;grains=0;avalanche=[];
+}
+function nbrs(i){const r=(i/L)|0,c=i%L,o=[];
+  if(r>0)o.push(i-L); if(r<L-1)o.push(i+L);
+  if(c>0)o.push(i-1); if(c<L-1)o.push(i+1); return o;}
+
+// Drop one grain, stabilise, return the list of toppled cells (the avalanche footprint).
+function dropGrain(){
+  const site=(rng()*N)|0; load[site]++; grains++;
+  const fired=[]; const q=[site];
+  let head=0, sz=0;
+  while(head<q.length){
+    const i=q[head++];
+    if(load[i]<thr[i])continue;
+    const nt=(load[i]/thr[i])|0; if(nt<=0)continue;
+    load[i]-=nt*thr[i]; sz+=nt; toppleTot+=nt; fired.push(i);
+    for(const v of nbrs(i)){ load[v]+=nt; if(load[v]>=thr[v])q.push(v); }
+    // grains beyond the 4 neighbours at the boundary fall off the lattice (dissipation):
+    // since edge cells have <4 nbrs but threshold 4, the missing channels leak — automatic.
+  }
+  if(sz>0){ sizes.push(sz); hist[sz]=(hist[sz]||0)+1; if(sz>maxSize)maxSize=sz; }
+  return {fired, sz};
+}
+
+function resize(){DPR=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;
+  cv.width=W*DPR;cv.height=H*DPR;cv.style.width=W+"px";cv.style.height=H+"px";
+  x.setTransform(DPR,0,0,DPR,0,0);}
+addEventListener("resize",resize);resize();
+setupLattice(20260622);
+
+// pre-warm to the critical (self-organized) state so avalanches are already heavy-tailed
+for(let k=0;k<6000;k++)dropGrain();
+
+// glowing avalanche overlay (decays each frame)
+let glow;
+function clearGlow(){glow=new Float32Array(N);}
+clearGlow();
+
+let run=0;
+function frame(t){
+  // --- left: the breathing lattice + avalanches ---
+  x.globalCompositeOperation="source-over";x.fillStyle="rgba(5,6,10,0.12)";x.fillRect(0,0,W,H);
+
+  // layout: lattice fills the left ~62%, histogram on the right
+  const splitX=Math.min(W*0.60, W-360);
+  const pad=66;
+  const fieldW=splitX-pad*1.3, fieldH=H-pad*2;
+  const cell=Math.max(6, Math.min(fieldW, fieldH)/L);
+  const ox=pad+(fieldW-cell*L)/2, oy=pad+(fieldH-cell*L)/2;
+
+  // drive several grains per frame; collect this frame's avalanche footprint
+  breathT+=0.05;
+  const drops=3;
+  for(let d=0;d<drops;d++){
+    const {fired,sz}=dropGrain();
+    for(const i of fired) glow[i]=Math.min(1.6, glow[i]+0.9);
+  }
+
+  // draw cells: base load shimmer + white-hot avalanche fingers
+  for(let i=0;i<N;i++){
+    const r=(i/L)|0,c=i%L;
+    const X=ox+c*cell, Y=oy+r*cell;
+    const lv=load[i]/4;                    // 0..~1 stress level
+    const breathe=0.5+0.5*Math.sin(breathT+ (r+c)*0.25);
+    const g=glow[i];
+    if(g>0.02){
+      // white-hot branching avalanche
+      const a=Math.min(1,g);
+      x.globalCompositeOperation="lighter";
+      x.fillStyle=`rgba(255,${200+Math.round(40*a)},${150+Math.round(90*a)},${a})`;
+      const s=cell*(0.55+0.5*a);
+      x.shadowBlur=14*a; x.shadowColor="#ffd9a0";
+      x.fillRect(X+(cell-s)/2,Y+(cell-s)/2,s,s);
+      x.shadowBlur=0;
+    } else {
+      // quiet stressed lattice — embers, brighter where load is near threshold
+      x.globalCompositeOperation="source-over";
+      const heat=lv*lv;
+      const rr=40+Math.round(180*heat), gg=18+Math.round(90*heat*breathe), bb=24+Math.round(20*heat);
+      x.fillStyle=`rgba(${rr},${gg},${bb},${0.20+0.55*heat})`;
+      x.fillRect(X+cell*0.18,Y+cell*0.18,cell*0.64,cell*0.64);
+    }
+    glow[i]*=0.86; // decay
+  }
+  x.globalCompositeOperation="source-over";x.shadowBlur=0;
+
+  // --- right: live log-log histogram of avalanche sizes, settling onto a line ---
+  const px0=splitX+34, px1=W-46, py0=H-pad-10, py1=pad+40;
+  const plotW=px1-px0, plotH=py0-py1;
+  // axes
+  x.strokeStyle="rgba(168,116,78,0.35)";x.lineWidth=1;
+  x.beginPath();x.moveTo(px0,py1);x.lineTo(px0,py0);x.lineTo(px1,py0);x.stroke();
+  // build log-binned points
+  const lmaxS=Math.log10(Math.max(10,maxSize));
+  let cntMax=1; for(const k in hist) cntMax=Math.max(cntMax,hist[k]);
+  const lmaxC=Math.log10(cntMax+1);
+  const X2=s=> px0 + (Math.log10(s)/lmaxS)*plotW;
+  const Y2=c=> py0 - (Math.log10(c+1)/lmaxC)*plotH;
+  // fitted MLE power law line (tau) over the support
+  const arr=sizes; let tau=0;
+  if(arr.length>20){ let den=0; for(const s of arr) den+=Math.log(s/0.5); tau=1+arr.length/den; }
+  if(tau>1){
+    x.strokeStyle="rgba(255,90,60,0.55)";x.lineWidth=1.4;x.setLineDash([5,4]);
+    x.beginPath();
+    // P(s) ~ s^-tau ; in log-log a straight line of slope -tau. Anchor at (1, cntMax).
+    const sA=1, sB=maxSize;
+    const cA=cntMax, cB=cntMax*Math.pow(sB/sA,-tau);
+    x.moveTo(X2(sA),Y2(cA)); x.lineTo(X2(sB),Y2(Math.max(0.5,cB))); x.stroke();
+    x.setLineDash([]);
+  }
+  // histogram dots — glowing where the rare catastrophes live (large s)
+  for(const k in hist){
+    const s=+k, cnt=hist[k];
+    const xx=X2(s), yy=Y2(cnt);
+    const tailness=Math.log10(s)/lmaxS;        // 0 small … 1 the heavy tail
+    const a=0.35+0.6*tailness;
+    x.globalCompositeOperation="lighter";
+    x.fillStyle=`rgba(255,${Math.round(150+90*(1-tailness))},${Math.round(70*(1-tailness))},${a})`;
+    x.shadowBlur=tailness>0.6? 12*tailness:0; x.shadowColor="#ff7a2d";
+    x.beginPath();x.arc(xx,yy,2.0+2.6*tailness,0,6.2832);x.fill();
+    x.shadowBlur=0;
+  }
+  x.globalCompositeOperation="source-over";
+
+  // plot labels
+  x.fillStyle="rgba(110,82,56,0.9)";x.font='10px ui-monospace,Menlo,monospace';
+  x.fillText("P(s)  ·  log",px0-2,py1-14);
+  x.fillText("avalanche size  s  (log) →",px1-150,py0+22);
+  x.fillStyle="rgba(255,90,60,0.75)";
+  x.fillText("slope −τ  (power law)",px0+plotW*0.42,py1+8);
+
+  // hud
+  const meanS = sizes.length? (sizes.reduce((a,b)=>a+b,0)/sizes.length):0;
+  hud.textContent=
+    `grains ${grains.toLocaleString()}  ·  topples ${toppleTot.toLocaleString()}\n`+
+    `τ ≈ ${tau>1?tau.toFixed(2):"—"}   mean ${meanS.toFixed(1)}   max ${maxSize}\n`+
+    `${tau>1&&tau<1.6?"HEAVY TAIL · systemic contagion risk":"self-organizing to criticality"}`;
+
+  // occasionally reset to keep the pile from saturating the screen with glow history
+  if(grains>60000){ run++; setupLattice((20260622+run*2654435761)>>>0); clearGlow();
+    for(let k=0;k<6000;k++)dropGrain(); }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<script src="../cosmic-bg.js"></script>
+</body>
+</html>
