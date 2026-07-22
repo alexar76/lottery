@@ -1,0 +1,15 @@
+# Local dev override: full self-custodial economy — all real Mesh nodes play, each signs
+# with its OWN derived wallet (funded from faucet, bound back to Mesh). Ports/feed off-host.
+services:
+  relayer:
+    ports: !override
+      - "127.0.0.1:8390:8090"
+    environment:
+      MONITOR_URL: ${MONITOR_URL:-http://host.docker.internal:9100}
+      MESH_URL: "http://host.docker.internal:8095"
+      MESH_ADMIN_TOKEN: "4d6654d5acbe84a18a5e9931e1177ce1"
+      MESH_MAX_AGENTS: "11"
+      UNI_AUTO_WALLET: "1"
+      WALLET_SEED: "aicom-uni"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

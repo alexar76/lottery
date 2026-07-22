@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Percola — Network Resilience</title>
+<style>
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;cursor:default}
+  canvas{display:block;background:transparent}
+  .ui{position:fixed;left:28px;top:22px;font-family:"Iowan Old Style",Georgia,serif;
+       color:#cfe9e0;pointer-events:none;text-shadow:0 0 18px rgba(31,255,159,.45)}
+  .ui h1{margin:0;font-size:30px;letter-spacing:.42em;font-weight:500;
+         background:linear-gradient(90deg,#1fff9f,#22d3ee,#ff2d4a);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .ui p{margin:.5em 0 0;font-family:ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.22em;color:#5f9e88;opacity:.85}
+  .hud{position:fixed;right:26px;bottom:20px;font-family:ui-monospace,Menlo,monospace;font-size:11px;
+       letter-spacing:.12em;color:#5f9e88;opacity:.8;text-align:right;pointer-events:none;white-space:pre}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="ui"><h1>PERCOLA</h1><p>PERCOLATION THRESHOLD · WHEN THE NETWORK SHATTERS</p></div>
+<div class="hud" id="hud"></div>
+<script>
+const cv=document.getElementById("c"),x=cv.getContext("2d"),hud=document.getElementById("hud");
+let W,H,DPR;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+let nodes=[],edges=[],adj=[],order=[],fcK=0,N=0;
+function build(seed){
+  const rng=mulberry32(seed);
+  const N0=78,R=0.15;
+  const p=[];for(let i=0;i<N0;i++)p.push({x:0.05+0.9*rng(),y:0.10+0.82*rng()});
+  const a=p.map(()=>new Set());
+  for(let i=0;i<N0;i++)for(let j=i+1;j<N0;j++){const dx=p[i].x-p[j].x,dy=p[i].y-p[j].y;if(dx*dx+dy*dy<R*R){a[i].add(j);a[j].add(i);}}
+  const seen=new Array(N0).fill(false),comps=[];
+  for(let i=0;i<N0;i++){if(seen[i])continue;const st=[i];seen[i]=1;const c=[];while(st.length){const u=st.pop();c.push(u);for(const v of a[u])if(!seen[v]){seen[v]=1;st.push(v);}}comps.push(c);}
+  comps.sort((u,v)=>v.length-u.length);const keep=new Set(comps[0]);const map=new Map();
+  nodes=[];[...keep].forEach(o=>{map.set(o,nodes.length);nodes.push(p[o]);});
+  N=nodes.length;adj=nodes.map(()=>new Set());
+  for(const o of keep)for(const v of a[o])if(keep.has(v))adj[map.get(o)].add(map.get(v));
+  edges=[];for(let u=0;u<N;u++)for(const v of adj[u])if(u<v)edges.push([u,v]);
+  // greedy targeted order
+  const removed=new Array(N).fill(false),deg=nodes.map((_,i)=>adj[i].size);order=[];
+  for(let k=0;k<N;k++){let best=-1,bd=-1;for(let u=0;u<N;u++)if(!removed[u]&&deg[u]>bd){bd=deg[u];best=u;}if(best<0)break;removed[best]=true;order.push(best);for(const v of adj[best])if(!removed[v])deg[v]--;}
+  // f_c via susceptibility peak
+  let mx=-1;fcK=0;
+  for(let k=1;k<N;k++){const act=new Array(N).fill(true);for(let i=0;i<k;i++)act[order[i]]=false;const s=twoLargest(act);if(s[1]>mx){mx=s[1];fcK=k;}}
+}
+function twoLargest(act){const par=[...Array(N).keys()],sz=new Array(N).fill(1);
+  const f=x=>{while(par[x]!=x){par[x]=par[par[x]];x=par[x];}return x;};
+  for(const[u,v]of edges)if(act[u]&&act[v]){const a=f(u),b=f(v);if(a!=b){if(sz[a]<sz[b]){par[b]=a;sz[a]+=sz[b];}else{par[a]=b;sz[b]+=sz[a];}}}
+  const m={};for(let i=0;i<N;i++)if(act[i]){const r=f(i);m[r]=(m[r]||0)+1;}
+  const ss=Object.values(m).sort((a,b)=>b-a);return[ss[0]||0,ss[1]||0];}
+function colOf(act){const par=[...Array(N).keys()],sz=new Array(N).fill(1);
+  const f=x=>{while(par[x]!=x){par[x]=par[par[x]];x=par[x];}return x;};
+  for(const[u,v]of edges)if(act[u]&&act[v]){const a=f(u),b=f(v);if(a!=b){if(sz[a]<sz[b]){par[b]=a;sz[a]+=sz[b];}else{par[a]=b;sz[b]+=sz[a];}}}
+  const roots={};for(let i=0;i<N;i++)if(act[i])roots[f(i)]=(roots[f(i)]||0)+1;
+  const sorted=Object.entries(roots).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
+  const rank={};sorted.forEach((r,i)=>rank[r]=i);
+  const col=new Array(N).fill(-1);for(let i=0;i<N;i++)if(act[i])col[i]=rank[f(i)];return col;}
+
+function resize(){DPR=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;cv.style.width=W+"px";cv.style.height=H+"px";x.setTransform(DPR,0,0,DPR,0,0);}
+addEventListener("resize",resize);resize();build(20260622);
+
+let kf=0,phase=0,hold=0,run=0;
+function clusterColor(ci){if(ci===0)return"#1fff9f";if(ci<0)return null;const h=(ci*67+18)%360;return`hsl(${h} 85% 62%)`;}
+function frame(t){
+  x.globalCompositeOperation="source-over";x.fillStyle="rgba(5,7,10,0.12)";x.fillRect(0,0,W,H);
+  // advance: ramp up to ~0.7N, hold shattered, then reset to a fresh graph
+  if(hold>0){hold--;if(hold===0){run++;build((20260622+run*1013904223)>>>0);kf=0;phase=0;}}
+  else{kf+=0.22;if(kf>=0.7*N){kf=0.7*N;hold=90;}}
+  const k=Math.min(N,Math.round(kf));
+  const act=new Array(N).fill(true);for(let i=0;i<k;i++)act[order[i]]=false;
+  const col=colOf(act);
+  const pad=70,X=u=>pad+nodes[u].x*(W-2*pad),Y=u=>pad+nodes[u].y*(H-2*pad);
+  // edges
+  x.globalCompositeOperation="lighter";x.lineWidth=1;
+  for(const[u,v]of edges){if(act[u]&&act[v]){const giant=col[u]===0&&col[v]===0;
+    x.strokeStyle=giant?"rgba(31,255,159,0.22)":"rgba(34,211,238,0.12)";
+    x.beginPath();x.moveTo(X(u),Y(u));x.lineTo(X(v),Y(v));x.stroke();}}
+  // nodes
+  for(let i=0;i<N;i++){if(!act[i])continue;const c=clusterColor(col[i]);
+    x.fillStyle=c;x.shadowBlur=col[i]===0?14:8;x.shadowColor=c;
+    x.beginPath();x.arc(X(i),Y(i),col[i]===0?4.2:3.2,0,6.2832);x.fill();}
+  x.shadowBlur=0;x.globalCompositeOperation="source-over";
+  const s=twoLargest(act);
+  const f=(k/N),fc=(fcK/N);
+  hud.textContent=`f = ${f.toFixed(2)} / f_c = ${fc.toFixed(2)}\nP∞ = ${Math.round(100*s[0]/N)}%  ·  ${k<fcK?"network intact":"SHATTERED"}`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<script src="../cosmic-bg.js"></script>
+</body>
+</html>

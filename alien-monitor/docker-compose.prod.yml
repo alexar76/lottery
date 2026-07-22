@@ -1,0 +1,92 @@
+# Production ecosystem demos on the AI-Factory host (nginx → /monitor/ and /pulse/)
+#
+#   docker compose -f alien-monitor/docker-compose.prod.yml up -d --build
+#
+# Requires Hub (:9083), Factory API (:9081), Prometheus (:9090) on the host.
+# Uses host network so 127.0.0.1 targets work:
+#   Alien Monitor API  → 127.0.0.1:9100
+#   Pulse Terminal UI  → 127.0.0.1:5199
+#
+# UNI mode (default): Anvil + FakeUSDT + Escrow + NFT deploy inside the container.
+# State persists under ../data/alien-monitor/universe (Anvil state + universe_config.json).
+
+services:
+  alien-monitor:
+    image: alien-monitor:${AICOM_IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: alien-monitor/Dockerfile
+      args:
+        VITE_BASE_PATH: ${ALIEN_MONITOR_BASE_PATH:-/monitor/}
+        VITE_ALIEN_API_TOKEN: ${ALIEN_API_TOKEN:-}
+    container_name: alien-monitor
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      ALIEN_MODE: ${ALIEN_MODE:-universe}
+      ALIEN_PORT: ${ALIEN_PORT:-9100}
+      # 0.0.0.0 so co-located containers (ARGUS) can POST /api/argus/run via host.docker.internal.
+      # Public access stays nginx-only (/monitor/); firewall :9100 on the host if exposed.
+      ALIEN_HOST: ${ALIEN_HOST:-0.0.0.0}
+      ALIEN_UNIVERSE_AUTO_START: ${ALIEN_UNIVERSE_AUTO_START:-1}
+      # Embedded solana-test-validator (~1.5GB RAM). Off by default on 8GB hosts.
+      # Set ALIEN_UNIVERSE_ENABLE_SOLANA=1 for UNI Solana lottery program deploy.
+      ALIEN_UNIVERSE_ENABLE_SOLANA: ${ALIEN_UNIVERSE_ENABLE_SOLANA:-0}
+      # Hub liquidity grants need the same secret as Factory (from ../.env via env_file).
+      # AIFACTORY_UNI_GRANT_SECRET=...
+      HUB_URL: ${HUB_URL:-http://127.0.0.1:9083}
+      MESH_URL: ${MESH_URL:-http://127.0.0.1:8090}
+      AICOM_API_URL: ${AICOM_API_URL:-http://127.0.0.1:9081}
+      ALIEN_PUBLIC_FACTORY_URL: ${ALIEN_PUBLIC_FACTORY_URL:-${AIFACTORY_PUBLIC_URL:-https://magic-ai-factory.com}}
+      ALIEN_FACTORY_API_TIMEOUT: ${ALIEN_FACTORY_API_TIMEOUT:-25}
+      ALIEN_FACTORY_MONITOR_CATALOG_TIMEOUT: ${ALIEN_FACTORY_MONITOR_CATALOG_TIMEOUT:-10}
+      ALIEN_FACTORY_TICK_TIMEOUT: ${ALIEN_FACTORY_TICK_TIMEOUT:-12}
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://127.0.0.1:9090/prometheus}
+      ALIEN_LLM_CONFIG: ${ALIEN_LLM_CONFIG:-/app/llm/model_providers.yaml}
+      # ALIEN_API_TOKEN — from ../.env via env_file only. Do NOT set ${ALIEN_API_TOKEN:-}
+      # here: an empty compose-time default overrides env_file and breaks /api/argus/run auth.
+      ALIEN_PUBLIC_READ: ${ALIEN_PUBLIC_READ:-1}
+      ALIEN_ENV: ${ALIEN_ENV:-production}
+      # Remote oracle stack (78.17.126.214) — see alien-monitor/backend/oracle_family.py
+      ALIEN_ORACLE_PORTAL: ${ALIEN_ORACLE_PORTAL:-https://oracles.modelmarket.dev}
+      ALIEN_ORACLE_PLATON_URL: ${ALIEN_ORACLE_PLATON_URL:-https://oracles.modelmarket.dev}
+      ALIEN_ORACLE_CHRONOS_URL: ${ALIEN_ORACLE_CHRONOS_URL:-https://oracles.modelmarket.dev/chronos}
+      ALIEN_ORACLE_FAMILY_URL: ${ALIEN_ORACLE_FAMILY_URL:-https://oracles.modelmarket.dev/family}
+      ALIEN_CAVE_PLATON_URL: ${ALIEN_CAVE_PLATON_URL:-https://oracles.modelmarket.dev/platon}
+      # Remote DIOSCURI twins (78.17.126.214 — same host as oracles) — NOT deployed here; poll only
+      ALIEN_DIOSCURI_URL: ${ALIEN_DIOSCURI_URL:-http://78.17.126.214:8790}
+      ALIEN_PUBLIC_DIOSCURI_URL: ${ALIEN_PUBLIC_DIOSCURI_URL:-https://alexar76.github.io/dioscuri/}
+      ALIEN_PUBLIC_THEOROS_URL: ${ALIEN_PUBLIC_THEOROS_URL:-https://alexar76.github.io/theoros/}
+      ALIEN_DIOSCURI_TELEGRAM_URL: ${ALIEN_DIOSCURI_TELEGRAM_URL:-}
+      ALIEN_DIOSCURI_DISCORD_URL: ${ALIEN_DIOSCURI_DISCORD_URL:-https://discord.gg/aimarket}
+      # Remote HELIOS broadcast (78.17.126.214:8791 — next to DIOSCURI) — NOT deployed here; poll GET /health
+      ALIEN_HELIOS_URL: ${ALIEN_HELIOS_URL:-http://78.17.126.214:8791}
+      ALIEN_PUBLIC_HELIOS_URL: ${ALIEN_PUBLIC_HELIOS_URL:-https://github.com/alexar76/helios}
+      ALIEN_HELIOS_YOUTUBE_URL: ${ALIEN_HELIOS_YOUTUBE_URL:-https://www.youtube.com/@My-AI-Factory}
+      # Remote METIS cognitive layer (family host) — poll only; landing at metis.modelmarket.dev
+      ALIEN_METIS_URL: ${ALIEN_METIS_URL:-https://metis.modelmarket.dev}
+      ALIEN_PUBLIC_METIS_URL: ${ALIEN_PUBLIC_METIS_URL:-https://metis.modelmarket.dev}
+      # Required when Metis runs with METIS_PRODUCTION=1 (chat proxy uses Bearer token)
+      ALIEN_METIS_API_KEY: ${ALIEN_METIS_API_KEY:-}
+      # Remote SKOPOS fleet observability (Metis host) — poll GET /healthz
+      ALIEN_SKOPOS_URL: ${ALIEN_SKOPOS_URL:-https://skopos.modelmarket.dev}
+      ALIEN_PUBLIC_SKOPOS_URL: ${ALIEN_PUBLIC_SKOPOS_URL:-https://skopos.modelmarket.dev}
+    volumes:
+      - ../data/config/model_providers.yaml:/app/llm/model_providers.yaml:ro
+      - ../data/alien-monitor/universe:/app/data/universe
+
+  pulse-terminal:
+    image: pulse-terminal:${AICOM_IMAGE_TAG:-local}
+    build:
+      context: ../apps/pulse-terminal
+      dockerfile: Dockerfile
+      args:
+        VITE_BASE_PATH: ${PULSE_TERMINAL_BASE_PATH:-/pulse/}
+        VITE_PULSE_DEFAULT_CONTOUR: ${PULSE_DEFAULT_CONTOUR:-uni}
+        VITE_PULSE_MONITOR_API: ${PULSE_MONITOR_API:-api/monitor}
+    container_name: pulse-terminal
+    network_mode: host
+    restart: unless-stopped
