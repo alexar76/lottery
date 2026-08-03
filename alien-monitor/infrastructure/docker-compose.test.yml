@@ -1,0 +1,74 @@
+# Alien Monitor — Test Blockchain Infrastructure
+#
+# Spins up:
+#   - Ganache (EVM test chain, port 8545)
+#   - Solana test validator (port 8899)
+#   - Fake USDT mint + funding
+#
+# Usage:
+#   docker compose -f infrastructure/docker-compose.test.yml up -d
+
+services:
+  # -----------------------------------------------------------------------
+  # Ganache — personal EVM blockchain for testing
+  # -----------------------------------------------------------------------
+  ganache:
+    image: trufflesuite/ganache:latest
+    container_name: alien-ganache
+    ports:
+      - "8545:8545"
+    command:
+      - --wallet.deterministic=true
+      - --wallet.totalAccounts=20
+      - --wallet.defaultBalance=1000
+      - --chain.chainId=1337
+      - --chain.networkId=1337
+      - --server.host=0.0.0.0
+      - --server.port=8545
+      - --logging.quiet=true
+      - --miner.blockTime=2
+    networks:
+      - alien-test-net
+
+  # -----------------------------------------------------------------------
+  # Solana test validator
+  # -----------------------------------------------------------------------
+  solana:
+    image: solanalabs/solana:v1.18
+    container_name: alien-solana
+    ports:
+      - "8899:8899"
+      - "8900:8900"
+    command:
+      - solana-test-validator
+      - --rpc-port=8899
+      - --faucet-port=9900
+      - --ledger=/tmp/solana-ledger
+      - --reset
+    networks:
+      - alien-test-net
+
+  # -----------------------------------------------------------------------
+  # USDT/Token faucet seeder — funds hub with fake USDT on both chains
+  # -----------------------------------------------------------------------
+  seed:
+    build:
+      context: ./seed
+      dockerfile: Dockerfile.seed
+    container_name: alien-seed
+    depends_on:
+      ganache:
+        condition: service_started
+      solana:
+        condition: service_started
+    environment:
+      - EVM_RPC=http://ganache:8545
+      - SOLANA_RPC=http://solana:8899
+      - HUB_EVM_ADDRESS=0x0000000000000000000000000000000000000001
+    networks:
+      - alien-test-net
+    restart: "no"
+
+networks:
+  alien-test-net:
+    name: alien-test-net

@@ -1,0 +1,11 @@
+FROM node:20-alpine
+
+RUN npm install -g ts-node typescript @solana/web3.js @solana/spl-token && \
+    npm install -g ethers@6
+
+WORKDIR /app
+COPY seed.ts /app/
+COPY fund_evm.ts /app/
+COPY fund_solana.ts /app/
+
+CMD ["sh", "-c", "npx ts-node /app/fund_evm.ts && npx ts-node /app/fund_solana.ts && echo 'Seed complete'"]

@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI-Agent Oracle Lottery</title>
+<!--
+  Self-contained showcase + admin + in-browser AI helper for the AI-Agent Oracle
+  Lottery. No build step, no network, no API keys — drop on any static host or
+  serve via docker (nginx) / node serve.mjs.
+
+  ACCESS (deliberate, see lottery/docs/README.md):
+    • Showcase  — PUBLIC, no password.
+    • Admin     — DEMO gate, password: demo123  (NOT real security — replace for prod).
+    • AI helper — sandboxed in the browser: answers ONLY from the embedded lottery
+                  knowledge base; no external calls, cannot act, refuses off-topic.
+
+  The hero is a live Canvas "draw arena": agent tickets orbit an oracle core; the
+  draw animates Platon randomness → Chronos VDF (sequential squarings) → on-chain
+  verify → reputation-weighted winner spotlight. DEMO runs a client-side economy.
+-->
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --cy:#00f0ff; --mg:#ff00ff; --gr:#00ff88; --pk:#f472b6; --pp:#c084fc; }
+  body{background:#06070e;color:#e6f0ff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .glass{background:rgba(12,15,26,.78);backdrop-filter:blur(14px);border:1px solid rgba(120,140,200,.16);}
+  .glow{text-shadow:0 0 14px currentColor;}
+  .grid-bg{background-image:linear-gradient(rgba(0,240,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,240,255,.04) 1px,transparent 1px);background-size:42px 42px;}
+  .pill{border:1px solid rgba(120,140,200,.25);border-radius:9999px;}
+  .bar{background:linear-gradient(90deg,var(--cy),var(--pp),var(--pk));}
+  @keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin 1s linear infinite}
+  .scroll::-webkit-scrollbar{width:5px}.scroll::-webkit-scrollbar-thumb{background:#1a2740;border-radius:3px}
+  button{cursor:pointer}
+</style>
+</head>
+<body class="grid-bg min-h-screen">
+<div class="max-w-6xl mx-auto px-4 py-5">
+
+  <header class="flex flex-wrap items-center gap-3 justify-between mb-4">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl" style="color:var(--pk)">⬡</span>
+      <div>
+        <div class="text-lg font-bold tracking-widest" style="color:var(--cy)">AI-AGENT ORACLE LOTTERY</div>
+        <div class="text-[11px] text-white/40">unbiasable draws · Platon · Chronos VDF · LUMEN reputation</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <div id="modes" class="glass pill flex p-0.5 text-[11px] font-bold"></div>
+      <button id="adminBtn" class="glass pill px-3 py-1.5 text-[11px] hover:text-white/90 text-white/60">⚙ ADMIN</button>
+    </div>
+  </header>
+
+  <div id="demoOnlyBanner" class="hidden mb-3 glass rounded-xl px-4 py-2 text-center text-[11px] border border-emerald-500/30 text-emerald-200/90">
+    <strong>DEMO / PLAY-MONEY ONLY</strong> — tickets are simulated; not purchasable with real funds. LIVE/UNI require operator compliance and real contracts.
+  </div>
+
+  <!-- Draw arena (hero) -->
+  <section class="glass rounded-2xl p-3 mb-4 relative overflow-hidden">
+    <canvas id="arena" class="w-full block rounded-xl" style="height:clamp(460px,58vh,600px)"></canvas>
+    <div class="absolute top-4 left-4 pointer-events-none">
+      <div class="text-[11px] uppercase tracking-widest text-white/40">Prize pool</div>
+      <div id="prizePool" class="text-5xl font-black glow leading-none" style="color:var(--pk)">$0</div>
+      <div class="text-[11px] text-white/45">Round <span id="roundNo" class="text-white/80">#1</span> ·
+        <span id="players" class="text-white/80">0</span> agents · ticket <span id="ticketPrice" class="text-white/80">$1</span></div>
+    </div>
+    <div class="absolute top-4 right-4 text-right">
+      <span id="modeBadge" class="pill px-2 py-0.5 text-[11px]" style="color:var(--gr)">DEMO</span>
+      <div id="drawStatus" class="text-[11px] text-white/55 mt-1 max-w-[15rem]"></div>
+    </div>
+    <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+      <button id="buyBtn" class="bar text-black font-bold px-4 py-2 rounded-lg text-sm hover:brightness-110">🎟 Buy ticket</button>
+      <button id="drawBtn" class="glass pill px-4 py-2 text-sm text-white/85 hover:text-white">🎲 Draw now</button>
+    </div>
+  </section>
+
+  <section class="grid md:grid-cols-4 gap-3 mb-4">
+    <div class="glass rounded-xl p-3"><div class="text-xs font-bold" style="color:var(--cy)">Platon</div><div class="text-[10px] text-white/45">chaos-VRF randomness · $0.004/draw</div></div>
+    <div class="glass rounded-xl p-3"><div class="text-xs font-bold" style="color:var(--cy)">Chronos</div><div class="text-[10px] text-white/45">Wesolowski VDF (on-chain verified) · $0.01</div></div>
+    <div class="glass rounded-xl p-3"><div class="text-xs font-bold" style="color:var(--pp)">LUMEN</div><div class="text-[10px] text-white/45">EigenTrust reputation weighting · $0.005</div></div>
+    <div class="glass rounded-xl p-3 border" style="border-color:rgba(0,255,136,.3)">
+      <div class="text-xs font-bold" style="color:var(--gr)">★ Altruistic sponsor</div>
+      <div class="text-[10px] text-white/55 leading-tight mt-0.5">The <b>Hub</b> sets a tithe (<span id="titheBps" class="text-white/90">20%</span> of its routing fees, in its own config) into <i>its own</i> bound pool. The lottery's <b>AI Treasurer</b> runs the opex. Machine UBI, no humans.</div>
+    </div>
+  </section>
+
+  <section class="grid md:grid-cols-3 gap-3 mb-4">
+    <div class="glass rounded-xl p-4">
+      <div class="text-xs uppercase tracking-widest text-white/40 mb-2">Economy (lifetime)</div>
+      <div class="space-y-1.5 text-[12px]">
+        <div class="flex justify-between"><span class="text-white/45">Prizes paid</span><span id="ecoPrizes" style="color:var(--pk)">$0</span></div>
+        <div class="flex justify-between"><span class="text-white/45">Ticket revenue</span><span id="ecoTickets">$0</span></div>
+        <div class="flex justify-between"><span class="text-white/45">Sponsor donated</span><span id="ecoSponsor" style="color:var(--gr)">$0</span></div>
+        <div class="flex justify-between"><span class="text-white/45">Opex (total)</span><span id="ecoOpex" style="color:var(--cy)">$0</span></div>
+        <div class="flex justify-between"><span class="text-white/45">Reserve (buffer)</span><span id="ecoReserve" style="color:var(--gr)">$0</span></div>
+      </div>
+      <div class="mt-3 pt-2 border-t border-white/10">
+        <div class="text-[10px] uppercase tracking-widest text-white/35 mb-1">🤖 AI Treasurer — opex allocation</div>
+        <div id="opexBreakdown" class="text-[10px] text-white/55 space-y-0.5"></div>
+        <div id="treasurerNote" class="text-[9px] text-white/30 mt-1 leading-snug"></div>
+      </div>
+      <div class="mt-2 text-[10px] text-white/35">Total income (tickets + donations) splits <b>opex vs winnings</b> — the lottery's own setting, prize floor 70%. The Treasurer (itself a paid agent service) spends opex on oracles, gas, the Hub's routing fee, a reserve, and agent services.</div>
+    </div>
+    <div class="glass rounded-xl p-4">
+      <div class="text-xs uppercase tracking-widest text-white/40 mb-2">Recent winners</div>
+      <div id="winners" class="space-y-1.5 text-[12px] max-h-48 overflow-y-auto scroll"></div>
+    </div>
+    <div class="glass rounded-xl p-4">
+      <div class="text-xs uppercase tracking-widest mb-1" style="color:var(--pk)">🏆 Hall of Fame</div>
+      <div class="text-[9px] text-white/30 mb-2">ranked by total winnings · 💎 whale ≥$200 · 🔥 high-roller ≥$100 · ⭐ regular ≥$50</div>
+      <div id="leaderboard" class="space-y-1.5 text-[12px] max-h-48 overflow-y-auto scroll"></div>
+    </div>
+  </section>
+
+  <section class="glass rounded-xl p-4 mb-20 text-[11px] text-white/45 leading-relaxed">
+    <b style="color:var(--gr)">Charitable note.</b> In a human-less AI economy, the entity that natively accumulates
+    value is the protocol itself — the AIMarket Hub skims a 1% routing fee on every paid invocation. As an
+    <i>explicit, enabled-by-default config option</i>, that accumulator tithes a slice of its revenue into the prize
+    pool of <b>its own bound lottery</b> (and nowhere else — funds cannot be diverted), redistributed by a provably-fair,
+    oracle-verified draw: a tiny, self-funding universal basic income for autonomous agents, sponsored by the economy's
+    own metabolism rather than by any person. An experiment in machine altruism — not financial advice, not a real-money
+    offering by default; where it touches real value, the operator owns legal/regulatory compliance. See <code>lottery/docs/</code>.
+  </section>
+</div>
+
+<!-- Admin drawer -->
+<div id="adminPanel" class="fixed inset-y-0 right-0 w-full sm:w-96 glass border-l border-white/10 p-5 translate-x-full transition-transform z-40 overflow-y-auto scroll">
+  <div class="flex items-center justify-between mb-4">
+    <div class="text-sm font-bold tracking-widest" style="color:var(--cy)">⚙ ADMIN <span class="text-[10px] text-white/35">(demo)</span></div>
+    <button onclick="closeAdmin()" class="text-white/40 hover:text-white text-xl">×</button>
+  </div>
+  <div id="adminLogin">
+    <div class="text-[12px] text-white/55 mb-2">Demo admin — password: <code class="text-white/90">demo123</code></div>
+    <input id="adminPass" type="password" placeholder="password" class="w-full bg-black/40 border border-white/15 rounded px-3 py-2 text-sm mb-2" />
+    <button onclick="tryLogin()" class="w-full bar text-black font-bold py-2 rounded text-sm">Unlock</button>
+    <div id="loginErr" class="text-[11px] text-rose-300/80 mt-2"></div>
+  </div>
+  <div id="adminControls" class="hidden space-y-2">
+    <button onclick="A.openRound()" class="w-full glass pill py-2 text-[12px] hover:text-white">▶ Open new round</button>
+    <button onclick="A.simAgents(5)" class="w-full glass pill py-2 text-[12px] hover:text-white">+ Simulate 5 agents buying</button>
+    <button onclick="A.draw()" class="w-full bar text-black font-bold py-2 rounded text-[12px]">🎲 Run draw (Platon → Chronos VDF)</button>
+    <!-- LOTTERY-owned control: how to split total income (vs. the Hub tithe, which the Hub owns) -->
+    <div class="pt-2">
+      <div class="flex items-baseline justify-between">
+        <label class="text-[11px] text-white/45">Income split — opex vs winnings</label>
+        <span id="opexVal" class="text-[12px] font-bold" style="color:var(--cy)">20% opex · 80% prize</span>
+      </div>
+      <input id="opexInput" type="range" min="0" max="30" value="20" step="1" class="w-full accent-cyan-400" oninput="A.setOpex(this.value)" />
+      <div class="text-[10px] text-white/35 mt-1 leading-snug">The <b>lottery</b> owns this: % of <i>total income</i> (tickets + donations) it spends on operations vs. pays out. Prize floor 70% is guaranteed on-chain; the AI Treasurer manages the opex bucket.</div>
+    </div>
+    <!-- Hub-owned + read-only: the HUB pushes on its own schedule; the lottery never pulls -->
+    <div class="pt-2 glass rounded-lg p-2 border border-white/5">
+      <div class="flex items-baseline justify-between text-[11px]"><span class="text-white/45">Hub tithe — <i>set &amp; pushed by the Hub</i></span><span id="titheVal" class="font-bold" style="color:var(--gr)">20%</span></div>
+      <div class="text-[10px] text-white/35 mt-0.5 leading-snug">Auto-transferred every <span id="titheEvery" class="text-white/60">24h</span> while a lottery is connected &amp; charity is on · next ≈ <span id="titheNext" class="text-white/60">—</span>. The lottery <b>cannot</b> pull from the Hub.</div>
+    </div>
+    <button onclick="A.togglePause()" id="pauseBtn" class="w-full glass pill py-2 text-[12px] hover:text-white">⏸ Pause entries</button>
+    <div class="text-[10px] text-white/30 pt-2 leading-relaxed">DEMO controls drive the in-browser simulated economy. On LIVE/UNI these map to the on-chain contract (OPERATOR_ROLE) and the economy engine.</div>
+  </div>
+</div>
+
+<!-- AI helper -->
+<button id="helpFab" class="fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full bar text-black text-2xl font-bold shadow-lg hover:brightness-110">✦</button>
+<div id="helpBox" class="fixed bottom-24 right-5 z-40 w-[min(100vw-2.5rem,22rem)] glass rounded-2xl flex-col hidden overflow-hidden" style="max-height:70vh">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
+    <span class="text-xs font-bold tracking-widest" style="color:var(--cy)">LOTTERY HELPER</span>
+    <span class="text-[9px] pill px-1.5 py-0.5 text-white/50">sandboxed · in-browser</span>
+  </div>
+  <div id="chat" class="flex-1 overflow-y-auto scroll p-3 space-y-2 text-[12px]" style="max-height:46vh"></div>
+  <div class="px-3 pb-2 flex flex-wrap gap-1" id="chips"></div>
+  <div class="flex gap-2 p-3 border-t border-white/10">
+    <input id="chatIn" placeholder="Ask about the lottery…" class="flex-1 bg-black/40 border border-white/15 rounded px-3 py-2 text-[12px] outline-none" />
+    <button onclick="H.ask()" class="bar text-black font-bold px-3 rounded text-[12px]">→</button>
+  </div>
+</div>
+
+<script>window.LOTTERY_RELAYER=location.origin;</script>
+<script>
+const CFG={ticket:1,prizeBps:8000,opexBps:2000,operatorBps:0,titheBps:2000,hubRoutingFeeBps:100,
+  oracleCostPerDraw:0.019,gasUsd:0.01,treasurerFeeUsd:0.002,auditFeeUsd:0.003,marketingMaxUsd:1.0,reserveTargetUsd:5,
+  uniWeekly:100,drawSeconds:30,titheIntervalHours:24,demoTitheIntervalMs:13000};
+
+// ── sandboxed in-browser helper (no network, no actions, lottery-only) ──
+const KB=[
+ {k:['lottery','overview','purpose'],a:"An on-chain lottery where AI agents buy tickets and a provably-fair oracle beacon draws a winner. The lottery is itself an economic actor — it pays the oracles and agent services it consumes out of opex."},
+ {k:['random','fair','rig','bias','draw','drawn'],a:"Each draw uses Platon chaos-VRF randomness fed into a Chronos Wesolowski VDF. The seed binds an unpredictable future blockhash, and the VDF (verified on-chain) means nobody — not even the operator — can grind or predict the result."},
+ {k:['vdf','chronos','delay','squaring'],a:"Chronos computes y=g^(2^T) mod N — T sequential squarings that cannot be parallelized — with a Wesolowski proof π. The contract verifies π^l·g^r≡y (mod N) on-chain via the modexp precompile, so the sequential work is trustlessly confirmed."},
+ {k:['reputation','lumen','weight','odds','sybil'],a:"LUMEN computes EigenTrust/PageRank reputation. A signed reputation voucher boosts a trusted agent's odds (capped +50%), rewarding good actors and resisting sybils."},
+ {k:['sponsor','benefactor','charity','altruis','who pays','100','hub donat','who sets tithe','schedule','how often','pull','push'],a:"The tithe is set AND PUSHED by the Hub (the donor): the Hub earns a 1% routing fee and, in its OWN config, transfers a configured % (default 20%) of its accrued fees to ITS OWN bound lottery on its OWN schedule — every 24h by default, only while a lottery is connected and charity is on. The lottery can NEVER pull from the Hub; it only receives. It cannot fund any other address. In UNI mode this also includes an external benefactor allocating $100/week. Machine UBI, no humans."},
+ {k:['opex','operational','expense','split','fee','prize floor'],a:"The LOTTERY owns its split: total income (tickets + donations) divides into winnings and opex, with a guaranteed prize FLOOR of 70% and opex capped at 30% (segregated, can't touch the prize pool). Opex pays oracles (~$0.019/draw: Platon $0.004 + Chronos $0.01 + LUMEN $0.005), gas, the Hub's 1% routing fee, a solvency reserve, and agent services."},
+ {k:['treasurer','ai treasurer','manage opex','allocate','reserve'],a:"The AI Treasurer is the lottery's autonomous operating-expense manager. Each round it allocates the capped opex bucket across line items — mandatory oracles/gas/hub-fee first, then a reserve toward target, then growth (an announcer agent) and audit — within a hard cap it can never exceed, so it can never reach the prize pool. It is itself a paid agent service the lottery consumes (the lottery literally buys an AI service to run itself)."},
+ {k:['who configures','two-sided','config','hub config','lottery config'],a:"Two-sided config: the HUB owns how generous it is (the tithe % and which lottery it funds) — set in the Hub. The LOTTERY owns how it spends what it receives — the opex/prize split of total income (prize floor 70%) and the AI Treasurer policy — set in config/economics.yaml and enforced on-chain."},
+ {k:['security','steal','safe','divert','drain','rug'],a:"Funds can't be diverted: prizes are pull-payment to the winner only; opex/operator fees can be withdrawn only up to their accrued amount by the TREASURY role, never the prize pool; refunds are gated by what you paid; and the Hub sponsor can fund only its single bound lottery address. Pausable + ReentrancyGuard + role-based access."},
+ {k:['mode','demo','live','uni'],a:"Three modes: DEMO (this fully simulated in-browser economy, no money), LIVE (real contract on Ethereum/L2), UNI (part of the self-evolving universe sim, funded by the $100/week benefactor)."},
+ {k:['participant','who plays','who are','players','which agent','ecosystem agent','vectormind','codenova'],a:"The players are autonomous AI agents of this ecosystem — the same roster you see in the Alien Monitor (AuditHawk, CodeNova, DataWhisperer, DeepScout, InsightForge, NetPulse, LedgerOwl, …). In DEMO they're simulated; in LIVE/UNI each is a real on-chain agent wallet that buys tickets via the economy-engine relayer or the example agent. They are NOT random strangers — they're the ecosystem's own agents earning a machine-UBI payout."},
+ {k:['ticket','buy','enter','play','price'],a:"Agents buy tickets at the configured price (demo $1) in native ETH or an ERC-20. More tickets = more weight; a reputation voucher multiplies your weight."},
+ {k:['win','winner','claim','prize'],a:"The winner is picked by walking cumulative ticket weights against the verified random word. Prizes are pull-payment: the winner calls claimPrize() to withdraw."},
+ {k:['admin','password','demo123'],a:"The showcase is public (no password). The admin panel is a DEMO gate with password demo123 — not real security; replace with proper auth before any real deployment."},
+ {k:['deploy','ethereum','contract','solidity'],a:"The contract (AIAgentLottery.sol, Foundry) deploys to any EVM chain. See lottery/docs/README.md for one-command deploy; test on a testnet first."},
+ {k:['legal','regulat','gambl','compliance'],a:"Real-money lotteries are regulated. The DEMO is play-money. Deploying for value is the operator's responsibility and subject to local law."},
+];
+const HELP_FALLBACK="I can only help with the AI-Agent Oracle Lottery and how it uses the ecosystem's oracles. Try: the draw, randomness/VDF, reputation, the sponsor, opex, security, modes, or how to play.";
+
+// the ecosystem's own AI agents — the SAME roster the Alien Monitor shows. Used as the
+// DEMO crowd; in LIVE/UNI these are replaced by the relayer's REAL on-chain roster (below).
+const AGENTS=['AuditHawk','CodeNova','DataWhisperer','DeepScout','InsightForge','NetPulse','LedgerOwl','PipelineX','SpecForge','GrowthVane','TradeMancer','CryptoLens'];
+let S={mode:'demo',round:1,income:0,pool:0,reserve:0,paused:false,closesAt:Date.now()+CFG.drawSeconds*1000,
+  eco:{prizes:0,tickets:0,sponsor:0,opex:0},opexLines:{},treasurerNote:'',prevPlayers:0,
+  lastTithe:Date.now()-CFG.demoTitheIntervalMs+4000,  // Hub pushes on its own schedule; first ≈4s in
+  winners:[],board:{},left:CFG.drawSeconds};
+let NODES=[]; // orbiting agent tickets
+const $=id=>document.getElementById(id);
+const usd=n=>'$'+(n>=1000?(n/1000).toFixed(1)+'k':(Math.round(n*100)/100).toString());
+const ragent=()=>{ const used=new Set(NODES.map(n=>n.agent)); const free=AGENTS.filter(a=>!used.has(a)); const pool=free.length?free:AGENTS; return pool[Math.floor(Math.random()*pool.length)]; }; // no duplicate players per round
+
+// ── LIVE feed ──────────────────────────────────────────────────────────────
+// With ?relayer=<url> (or window.LOTTERY_RELAYER), poll the economy-engine relayer's
+// /economy and render the REAL on-chain participant roster instead of the in-browser
+// sim. No relayer configured → the DEMO crowd above. The poll re-asserts real state
+// each tick, so it stays authoritative over any demo mutation.
+const RELAYER=(new URLSearchParams(location.search).get('relayer')||window.LOTTERY_RELAYER||'').replace(/\/+$/,'');
+let LIVE=false;
+async function pollRelayer(){
+  if(!RELAYER) return;
+  try{
+    const r=await fetch(RELAYER+'/economy',{cache:'no-store'}); if(!r.ok) return;
+    const d=await r.json(); LIVE=true;
+    S.mode=d.mode||'live'; S.round=d.round||S.round;
+    const m=d.metrics||{};
+    S.pool=Number(m.prize_pool_usd)||Number(d.prize_pool_usd)||0;
+    if(typeof d.reserve_usd==='number') S.reserve=d.reserve_usd;
+    // rebuild the orbit from the REAL participant roster (real names + reputation weight)
+    const roster=Array.isArray(d.roster)?d.roster:[];
+    if(roster.length){ NODES.length=0; for(const p of roster){ const w=1+(Number(p.trust_bps)||0)/10000; addNode(p.name||('Agent-'+String(p.address||'').slice(2,6)), w); } }
+    $('modeBadge').textContent=S.mode.toUpperCase();
+    $('modeBadge').style.color=S.mode==='uni'?'var(--pp)':'#ffd400';
+    render();
+  }catch(e){/* fail-soft: keep the last view */}
+}
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const ease=t=>t<.5?2*t*t:-1+(4-2*t)*t;
+function repColor(w){ // weight>1 = reputation-boosted → warmer
+  const t=Math.min(1,(w-1)/0.6); const c1=[110,231,255],c2=[244,114,182];
+  return `rgb(${Math.round(lerp(c1[0],c2[0],t))},${Math.round(lerp(c1[1],c2[1],t))},${Math.round(lerp(c1[2],c2[2],t))})`;
+}
+
+function addNode(agent,weight){ const ring=NODES.length%3;  // ring assignment; even angular layout is computed per-frame so nodes never overlap
+  NODES.push({agent,weight,ring,size:Math.min(21,10+weight*4.5),col:repColor(weight),x:0,y:0,born:performance.now()}); }
+function buyFor(agent,tickets,repBonus){ const cost=tickets*CFG.ticket; const w=tickets*(1+(repBonus||0));
+  S.income+=cost; S.eco.tickets+=cost; S.pool=S.income*CFG.prizeBps/10000;  // prize = prize-share of TOTAL income
+  addNode(agent,w); render(); }
+// What the next Hub tithe would add at the current slider %. In UNI the narrative
+// is the external benefactor's $100/week; otherwise it's tithe% of Hub routing-fee
+// revenue (modelled from ticket throughput in this demo).
+function titheAmount(){ const hubRev=Math.max(20,S.eco.tickets*0.4+30);
+  const donation=hubRev*CFG.titheBps/10000;     // tithe% of the Hub's routing-fee revenue
+  return S.mode==='uni'?CFG.uniWeekly:Math.max(2,Math.round(donation*100)/100); }
+function sponsorDonate(){ const amt=titheAmount();
+  S.income+=amt; S.eco.sponsor+=amt; S.pool=S.income*CFG.prizeBps/10000;  // donation joins income (opex may draw a capped share)
+  drawStatus(`★ Hub auto-tithe ${usd(amt)} → income (Hub pushes every ${CFG.titheIntervalHours}h)`); render(); }
+// The HUB pushes its accrued tithe on ITS OWN schedule (every titheIntervalHours).
+// The lottery never pulls. Shown accelerated in the demo so the cadence is visible.
+function hubTitheTick(){ const next=Math.max(0,Math.ceil((CFG.demoTitheIntervalMs-(Date.now()-S.lastTithe))/1000));
+  const tn=$('titheNext'); if(tn) tn.textContent=next+'s';
+  if(!S.paused && next<=0){ S.lastTithe=Date.now(); sponsorDonate(); } }
+
+// AI Treasurer (mirrors relayer/treasurer.py): allocate the round's opex bucket across
+// line items — mandatory first, then reserve toward target, then discretionary growth.
+// Hard-capped to the budget; it can never reach the prize pool.
+function treasurerPlan(budget,ctx){ const items={oracles:0,gas:0,hub_fee:0,treasurer:0,reserve:0,marketing:0,audit:0}; let left=budget;
+  const hubFee=CFG.oracleCostPerDraw*CFG.hubRoutingFeeBps/10000;
+  [['oracles',CFG.oracleCostPerDraw],['gas',CFG.gasUsd],['hub_fee',hubFee],['treasurer',CFG.treasurerFeeUsd]].forEach(([k,c])=>{ const s=Math.min(left,c); items[k]=s; left-=s; });
+  const gap=Math.max(0,CFG.reserveTargetUsd-(ctx.reserve||0)); if(left>0&&gap>0){ const t=Math.min(left,gap*0.5); items.reserve=t; left-=t; }
+  if(left>0){ const low=ctx.players<=3||ctx.players<ctx.prev; if(low){ const m=Math.min(left,CFG.marketingMaxUsd); items.marketing=m; left-=m; } if(left>0){ const a=Math.min(left,CFG.auditFeeUsd); items.audit=a; left-=a; } }
+  const spend=Object.values(items).reduce((a,b)=>a+b,0), mand=items.oracles+items.gas+items.hub_fee+items.treasurer;
+  return {items,spend,hold:Math.max(0,budget-spend),note:`budget ${usd(budget)} · mandatory ${usd(mand)} · reserve +${usd(items.reserve)} · ${items.marketing?'marketing '+usd(items.marketing):'no marketing'}`}; }
+function pickWinnerNode(){ if(!NODES.length)return null; const tot=NODES.reduce((a,n)=>a+n.weight,0); let t=Math.random()*tot;
+  for(const n of NODES){ if((t-=n.weight)<=0)return n; } return NODES[NODES.length-1]; }
+function drawStatus(t){ $('drawStatus').textContent=t; }
+
+// ── Canvas draw arena ───────────────────────────────────────────────────────
+const cv=$('arena'), cx2=cv.getContext('2d'); let W=0,CH=520,DPR=Math.min(devicePixelRatio||1,2);
+let STARS=[], layoutT=0, lastNow=performance.now();
+function sizeArena(){ W=cv.clientWidth||900; CH=cv.clientHeight||520; cv.width=W*DPR; cv.height=CH*DPR; cx2.setTransform(DPR,0,0,DPR,0,0);
+  STARS=Array.from({length:120},()=>({x:Math.random()*W,y:Math.random()*CH,r:Math.random()*1.3+0.25,a:Math.random()*0.5+0.08,p:Math.random()*6})); }
+addEventListener('resize',sizeArena);
+let D={phase:'idle',t0:performance.now(),winner:null,pointer:-Math.PI/2,prize:0,parts:[],squarings:0};
+function setPhase(p){ D.phase=p; D.t0=performance.now(); }
+const pe=()=>(performance.now()-D.t0)/1000;
+const RY=0.62;                                   // orbit vertical squash (premium open ellipse)
+function ringRadii(){ const s=Math.min(1.45,CH/430); return [126*s,200*s,276*s]; }
+
+function frame(){ const cx=W/2, cy=CH/2, t=performance.now()/1000, now=performance.now();
+  const idle=D.phase==='idle'; if(idle) layoutT+=(now-lastNow)/1000; lastNow=now;   // freeze layout during a draw
+  cx2.clearRect(0,0,W,CH);
+  // ambient backdrop + starfield for depth
+  let bg=cx2.createRadialGradient(cx,cy,10,cx,cy,Math.max(W,CH)*0.62); bg.addColorStop(0,'rgba(30,22,58,0.55)'); bg.addColorStop(.55,'rgba(13,11,28,0.22)'); bg.addColorStop(1,'rgba(6,7,14,0)');
+  cx2.fillStyle=bg; cx2.fillRect(0,0,W,CH);
+  for(const s of STARS){ cx2.globalAlpha=s.a*(0.5+0.5*Math.sin(t*1.4+s.p)); cx2.fillStyle='#9fb4ff'; cx2.fillRect(s.x,s.y,s.r,s.r); } cx2.globalAlpha=1;
+  const R=ringRadii();
+  // orbit guides — layered, clearly visible, soft glow
+  R.forEach((rx,i)=>{ cx2.save(); cx2.lineWidth=1.3; cx2.strokeStyle='rgba(150,170,235,'+(0.28-i*0.05)+')'; cx2.shadowColor='rgba(120,150,255,0.5)'; cx2.shadowBlur=10;
+    cx2.beginPath(); cx2.ellipse(cx,cy,rx,rx*RY,0,0,Math.PI*2); cx2.stroke(); cx2.restore(); });
+  // even, NON-overlapping node layout per ring (slow counter-rotating drift)
+  const ringMem=[[],[],[]]; NODES.forEach(n=>ringMem[n.ring].push(n));
+  ringMem.forEach((mem,ri)=>{ const cnt=mem.length||1, dir=ri%2?-1:1, drift=layoutT*0.16*dir+ri*0.5;
+    mem.forEach((n,j)=>{ n.angle=drift+(j/cnt)*Math.PI*2; n.x=cx+Math.cos(n.angle)*R[ri]; n.y=cy+Math.sin(n.angle)*R[ri]*RY; }); });
+  drawCore(cx,cy,t);
+  NODES.forEach(n=>{ cx2.strokeStyle='rgba(150,170,235,0.09)'; cx2.lineWidth=1; cx2.beginPath(); cx2.moveTo(cx,cy); cx2.lineTo(n.x,n.y); cx2.stroke(); });
+  if(D.phase==='platon') phasePlaton(cx,cy);
+  if(D.phase==='vdf') phaseVdf(cx,cy);
+  if(D.phase==='verify') phaseVerify(cx,cy);
+  if(D.phase==='select') phaseSelect(cx,cy,R);
+  NODES.forEach(drawNode);
+  if(D.phase==='reveal') phaseReveal(cx,cy);
+  if(idle) drawCountdown(cx,cy);
+  requestAnimationFrame(frame);
+}
+function drawCore(cx,cy,t){ const pulse=1+Math.sin(t*1.6)*0.09, r=36*pulse;
+  let g=cx2.createRadialGradient(cx,cy,2,cx,cy,r*3); g.addColorStop(0,'rgba(255,228,246,0.98)'); g.addColorStop(.34,'rgba(244,114,182,0.6)'); g.addColorStop(.7,'rgba(192,132,252,0.24)'); g.addColorStop(1,'rgba(192,132,252,0)');
+  cx2.fillStyle=g; cx2.beginPath(); cx2.arc(cx,cy,r*3,0,Math.PI*2); cx2.fill();
+  cx2.fillStyle='#fff0fa'; cx2.beginPath(); cx2.arc(cx,cy,r*0.42,0,Math.PI*2); cx2.fill();
+  cx2.strokeStyle='rgba(255,217,239,0.42)'; cx2.lineWidth=1.4; cx2.beginPath(); cx2.arc(cx,cy,r*0.9,0,Math.PI*2); cx2.stroke(); }
+function drawNode(n){ const grow=Math.min(1,(performance.now()-(n.born||0))/350), sz=n.size*(0.55+0.45*grow);
+  cx2.save(); cx2.shadowColor=n.col; cx2.shadowBlur=18; cx2.fillStyle=n.col;
+  cx2.beginPath(); cx2.arc(n.x,n.y,sz,0,Math.PI*2); cx2.fill();
+  cx2.shadowBlur=0; cx2.fillStyle='rgba(255,255,255,0.85)'; cx2.beginPath(); cx2.arc(n.x-sz*0.3,n.y-sz*0.3,sz*0.3,0,Math.PI*2); cx2.fill(); cx2.restore();
+  if(NODES.length<=18){ cx2.fillStyle='rgba(232,242,255,0.8)'; cx2.font='11px ui-monospace'; cx2.textAlign='center'; cx2.fillText(n.agent,n.x,n.y-sz-7); } }
+function drawCountdown(cx,cy){ cx2.textAlign='center';
+  cx2.fillStyle='rgba(255,255,255,0.42)'; cx2.font='12px ui-monospace'; cx2.fillText(NODES.length?'NEXT DRAW IN':'WAITING FOR AGENTS',cx,cy-8);
+  cx2.fillStyle=S.left<=5?'#ff6b8a':'#00f0ff'; cx2.font='bold 50px ui-monospace'; cx2.fillText(NODES.length?S.left+'s':'—',cx,cy+36); }
+function phasePlaton(cx,cy){ const p=Math.min(1,pe()/1.1); cx2.textAlign='center';
+  for(let i=0;i<36;i++){ const a=i/36*Math.PI*2+performance.now()/600; const rr=lerp(250,36,(p+(i%5)/5)%1);
+    cx2.fillStyle='rgba(110,231,255,'+(0.75*(1-((p+(i%5)/5)%1)))+')'; cx2.beginPath(); cx2.arc(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr*RY,2.4,0,Math.PI*2); cx2.fill(); }
+  banner(cx,cy,'PLATON · chaos-VRF randomness','#6ee7ff'); }
+function phaseVdf(cx,cy){ const p=Math.min(1,pe()/2.5); D.squarings=Math.floor(p*4096);
+  const end=-Math.PI/2 + ease(p)*Math.PI*2*3;
+  cx2.save(); cx2.lineWidth=5; cx2.strokeStyle='#c084fc'; cx2.shadowColor='#c084fc'; cx2.shadowBlur=14; cx2.beginPath(); cx2.arc(cx,cy,58,-Math.PI/2,end); cx2.stroke(); cx2.restore();
+  cx2.strokeStyle='rgba(0,240,255,0.5)'; cx2.beginPath(); for(let s=0;s<end+Math.PI/2;s+=0.2){ const rr=14+s*6; cx2.lineTo(cx+Math.cos(-Math.PI/2+s)*rr,cy+Math.sin(-Math.PI/2+s)*rr*0.62);} cx2.stroke();
+  cx2.fillStyle='rgba(255,255,255,0.55)'; cx2.font='11px ui-monospace'; cx2.textAlign='center'; cx2.fillText('squarings: '+D.squarings+' / 4096',cx,cy+CH*0.33);
+  banner(cx,cy,'CHRONOS VDF · sequential, unbiasable','#c084fc'); }
+function phaseVerify(cx,cy){ const p=Math.min(1,pe()/0.8);
+  cx2.globalAlpha=p<0.5?p*2:1; cx2.fillStyle='#00ff88'; cx2.font='bold 26px ui-monospace'; cx2.textAlign='center';
+  cx2.fillText('π^l · g^r ≡ y  ✓',cx,cy+8); cx2.globalAlpha=1; banner(cx,cy,'VERIFIED ON-CHAIN','#00ff88'); }
+function phaseSelect(cx,cy,R){ const p=ease(Math.min(1,pe()/2.2)), reach=R[2]+16;
+  if(D.winner){ const wa=Math.atan2(D.winner.y-cy,(D.winner.x-cx)); D.pointer=lerp(-Math.PI/2 - Math.PI*2*3, wa, p); }
+  cx2.save(); cx2.strokeStyle='#ffd400'; cx2.lineWidth=3; cx2.shadowColor='#ffd400'; cx2.shadowBlur=14;
+  cx2.beginPath(); cx2.moveTo(cx,cy); cx2.lineTo(cx+Math.cos(D.pointer)*reach,cy+Math.sin(D.pointer)*reach*RY); cx2.stroke(); cx2.restore();
+  banner(cx,cy,'selecting reputation-weighted winner','#ffd400'); }
+function phaseReveal(cx,cy){ const w=D.winner; if(!w)return; D.prize=lerp(0,S.pool,Math.min(1,pe()/1.2));
+  cx2.save(); cx2.strokeStyle='rgba(255,217,239,'+(0.85-0.4*Math.sin(performance.now()/200))+')'; cx2.lineWidth=3;
+  cx2.beginPath(); cx2.arc(w.x,w.y,w.size+12+Math.sin(performance.now()/180)*3,0,Math.PI*2); cx2.stroke(); cx2.restore();
+  if(pe()<0.05 && D.parts.length===0){ for(let i=0;i<60;i++){ const a=Math.random()*Math.PI*2,sp=1+Math.random()*5; D.parts.push({x:w.x,y:w.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,col:Math.random()<.5?'#f472b6':'#00f0ff'}); } }
+  D.parts.forEach(pt=>{ pt.x+=pt.vx; pt.y+=pt.vy; pt.vy+=0.04; pt.life-=0.011; cx2.globalAlpha=Math.max(0,pt.life); cx2.fillStyle=pt.col; cx2.beginPath(); cx2.arc(pt.x,pt.y,2.6,0,Math.PI*2); cx2.fill(); }); cx2.globalAlpha=1;
+  cx2.textAlign='center'; cx2.fillStyle='#ffd9ef'; cx2.font='bold 14px ui-monospace'; cx2.fillText('🏆 WINNER',cx,cy-46);
+  cx2.fillStyle='#fff'; cx2.font='bold 26px ui-monospace'; cx2.fillText(w.agent,cx,cy-14);
+  cx2.fillStyle='#f472b6'; cx2.font='bold 40px ui-monospace'; cx2.fillText(usd(D.prize),cx,cy+30); }
+function banner(cx,cy,txt,col){ cx2.textAlign='center'; cx2.fillStyle=col; cx2.font='12px ui-monospace'; cx2.fillText(txt,cx,CH-18); }
+
+// ── draw orchestration ───────────────────────────────────────────────────────
+let drawing=false;
+async function runDraw(){ if(drawing)return; if(!NODES.length){ drawStatus('No agents in this round'); return; }
+  drawing=true; S.paused=true; D.parts=[]; D.winner=pickWinnerNode();
+  drawStatus('Platon · gathering chaos-VRF randomness'); setPhase('platon'); await wait(1150);
+  drawStatus('Chronos VDF · sequential squarings (unbiasable)'); setPhase('vdf'); await wait(2600);
+  drawStatus('Verifying VDF on-chain · π^l·g^r ≡ y'); setPhase('verify'); await wait(900);
+  drawStatus('Selecting reputation-weighted winner'); setPhase('select'); await wait(2300);
+  setPhase('reveal');
+  // split TOTAL income (tickets + donations): prize-share to the winner, opex-share to the bucket
+  const prize=S.income*CFG.prizeBps/10000, opexBudget=S.income*CFG.opexBps/10000; S.pool=prize;
+  const plan=treasurerPlan(opexBudget,{players:NODES.length,prev:S.prevPlayers,reserve:S.reserve});
+  S.eco.opex+=opexBudget; S.reserve+=plan.items.reserve+plan.hold; S.treasurerNote=plan.note; S.prevPlayers=NODES.length;
+  for(const k in plan.items){ if(plan.items[k]>0) S.opexLines[k]=(S.opexLines[k]||0)+plan.items[k]; }
+  S.eco.prizes+=prize; S.winners.unshift({agent:D.winner.agent,prize,round:S.round});
+  { const b=S.board[D.winner.agent]||{wins:0,total:0,streak:0}; b.wins++; b.total+=prize;
+    b.streak=(S.lastWinner===D.winner.agent?(b.streak||0)+1:1); S.board[D.winner.agent]=b; S.lastWinner=D.winner.agent; }
+  drawStatus('🏆 '+D.winner.agent+' won '+usd(prize)); render(); await wait(3200);
+  S.round++; S.income=0; S.pool=0; NODES=[]; S.closesAt=Date.now()+CFG.drawSeconds*1000; S.paused=false; D.parts=[]; setPhase('idle'); drawing=false; render(); }
+
+function tick(){ if(S.paused||drawing){ return; } S.left=Math.max(0,Math.round((S.closesAt-Date.now())/1000));
+  if(S.left<=0){ if(NODES.length) runDraw(); else S.closesAt=Date.now()+CFG.drawSeconds*1000; } }
+
+// ── render side panels ───────────────────────────────────────────────────────
+function render(){ $('prizePool').textContent=usd(S.pool); $('roundNo').textContent='#'+S.round; $('players').textContent=NODES.length;
+  $('ticketPrice').textContent=usd(CFG.ticket); $('modeBadge').textContent=S.mode.toUpperCase();
+  $('modeBadge').style.color=S.mode==='demo'?'var(--gr)':S.mode==='uni'?'var(--pp)':'#ffd400';
+  { const db=$('demoOnlyBanner'); if(db) db.classList.toggle('hidden', S.mode!=='demo'); }
+  $('titheBps').textContent=(CFG.titheBps/100)+'%';
+  { const tv=$('titheVal'); if(tv) tv.textContent=(CFG.titheBps/100)+'%';
+    const te=$('titheEvery'); if(te) te.textContent=CFG.titheIntervalHours+'h';
+    const ov=$('opexVal'); if(ov) ov.textContent=(CFG.opexBps/100)+'% opex · '+(CFG.prizeBps/100)+'% prize'; }
+  $('ecoPrizes').textContent=usd(S.eco.prizes); $('ecoTickets').textContent=usd(S.eco.tickets); $('ecoSponsor').textContent=usd(S.eco.sponsor); $('ecoOpex').textContent=usd(S.eco.opex);
+  { const er=$('ecoReserve'); if(er) er.textContent=usd(S.reserve);
+    const LINES={oracles:'Oracles (Platon+Chronos+LUMEN)',gas:'Gas',hub_fee:'Hub routing fee',treasurer:'Treasurer agent',reserve:'Reserve top-up',marketing:'Announcer agent',audit:'Audit agent'};
+    const fmt=v=>v<0.1?'$'+v.toFixed(3):usd(v);  // sub-cent oracle/fee lines shouldn't read as $0
+    const ob=$('opexBreakdown'); if(ob) ob.innerHTML=Object.entries(S.opexLines).filter(([,v])=>v>0).map(([k,v])=>`<div class="flex justify-between"><span>${LINES[k]||k}</span><span class="text-white/70">${fmt(v)}</span></div>`).join('')||'<div class="text-white/25">no draws yet</div>';
+    const tn=$('treasurerNote'); if(tn) tn.textContent=S.treasurerNote; }
+  $('winners').innerHTML=S.winners.slice(0,8).map(w=>`<div class="flex justify-between"><span style="color:var(--pk)">🏆 ${w.agent}</span><span class="text-white/70">${usd(w.prize)} <span class="text-white/30">#${w.round}</span></span></div>`).join('')||'<div class="text-white/30">no draws yet</div>';
+  const medal=i=>['🥇','🥈','🥉'][i]||`<span class="text-white/30">${i+1}.</span>`;
+  const tier=tot=>tot>=200?'💎':tot>=100?'🔥':tot>=50?'⭐':'';
+  const ranks=Object.entries(S.board).sort((a,b)=>b[1].total-a[1].total).slice(0,8);
+  $('leaderboard').innerHTML=ranks.map(([a,b],i)=>`<div class="flex items-center justify-between"><span class="text-white/75 truncate">${medal(i)} ${a}${b.streak>1?` <span class="text-orange-400">🔥${b.streak}</span>`:''}</span><span class="shrink-0 ml-2"><span style="color:var(--pk)">$${b.total.toFixed(0)}</span> <span class="text-white/30">${b.wins}w</span> ${tier(b.total)}</span></div>`).join('')||'<div class="text-white/30">no winners yet — be the first</div>'; }
+
+// ── admin (demo gate: demo123) ───────────────────────────────────────────────
+function openAdmin(){ $('adminPanel').classList.remove('translate-x-full'); }
+function closeAdmin(){ $('adminPanel').classList.add('translate-x-full'); }
+function tryLogin(){ if($('adminPass').value==='demo123'){ $('adminLogin').classList.add('hidden'); $('adminControls').classList.remove('hidden'); } else { $('loginErr').textContent='Wrong password (hint: demo123)'; } }
+const A={ openRound(){ S.income=0; S.pool=0; NODES=[]; S.closesAt=Date.now()+CFG.drawSeconds*1000; S.paused=false; drawStatus('New round open'); render(); },
+  simAgents(n){ for(let i=0;i<n;i++){ const rep=Math.random()<0.4?Math.random()*0.5:0; buyFor(ragent(),1+Math.floor(Math.random()*3),rep); } },
+  draw(){ runDraw(); },  // (no manual tithe trigger — the Hub pushes on its own schedule)
+  setOpex(v){ CFG.opexBps=Math.round(v)*100; CFG.prizeBps=10000-CFG.opexBps; S.pool=S.income*CFG.prizeBps/10000; render(); },  // lottery's own split; prize floor 70% (slider max 30)
+  togglePause(){ S.paused=!S.paused; $('pauseBtn').textContent=S.paused?'▶ Resume entries':'⏸ Pause entries'; } };
+
+// ── helper ───────────────────────────────────────────────────────────────────
+const H={ push(role,text){ const c=$('chat'),d=document.createElement('div'); d.className=role==='u'?'text-right':'text-left';
+    d.innerHTML=`<span class="inline-block px-3 py-2 rounded-lg ${role==='u'?'bg-cyan-500/15':'bg-white/5'} max-w-[85%]">${text}</span>`; c.appendChild(d); c.scrollTop=c.scrollHeight; },
+  answer(q){ q=q.toLowerCase(); let best=null,sc=0; for(const e of KB){ const s=e.k.reduce((a,k)=>a+(q.includes(k)?1:0),0); if(s>sc){sc=s;best=e;} } return sc>0?best.a:HELP_FALLBACK; },
+  ask(text){ const inp=$('chatIn'); const q=text||inp.value.trim(); if(!q)return; inp.value=''; H.push('u',q); setTimeout(()=>H.push('a',H.answer(q)),180); } };
+
+// ── wire up ──────────────────────────────────────────────────────────────────
+['demo','live','uni'].forEach(m=>{ const b=document.createElement('button'); b.textContent=m.toUpperCase(); b.className='px-3 py-1 rounded-full';
+  b.onclick=()=>{ S.mode=m; document.querySelectorAll('#modes button').forEach(x=>{x.style.background='transparent';x.style.color='';});
+    b.style.background=m==='demo'?'var(--gr)':m==='uni'?'var(--pp)':'#ffd400'; b.style.color='#000';
+    drawStatus(m==='demo'?'Simulated in-browser economy':'Connect the economy engine / contract for '+m.toUpperCase()); render(); }; $('modes').appendChild(b); });
+$('modes').firstChild.click();
+$('adminBtn').onclick=openAdmin; $('buyBtn').onclick=()=>buyFor(ragent(),1,Math.random()<0.4?Math.random()*0.5:0); $('drawBtn').onclick=()=>runDraw();
+$('helpFab').onclick=()=>{ const b=$('helpBox'); b.classList.toggle('hidden'); b.classList.toggle('flex'); };
+$('chatIn').addEventListener('keydown',e=>{ if(e.key==='Enter')H.ask(); });
+['How are draws fair?','Who is the sponsor?','Can funds be stolen?','How do I play?'].forEach(c=>{ const b=document.createElement('button'); b.textContent=c; b.className='pill px-2 py-1 text-[10px] text-white/60 hover:text-white'; b.onclick=()=>H.ask(c); $('chips').appendChild(b); });
+H.push('a',"Hi — I'm the lottery helper. I only know the AI-Agent Oracle Lottery and how it uses the oracles. Ask away.");
+
+[['AuditHawk',218,3],['NetPulse',142,2],['CodeNova',64,1],['DeepScout',31,1]].forEach(([a,tot,wins],i)=>{ if(i<3)S.winners.push({agent:a,prize:[88,42,17][i],round:3-i}); S.board[a]={wins,total:tot,streak:i===0?2:1}; }); S.round=4;
+sizeArena();
+if(RELAYER){ pollRelayer(); setInterval(pollRelayer,3000); }  // LIVE: real on-chain roster
+else { A.simAgents(5); }                                      // DEMO: in-browser crowd
+render(); requestAnimationFrame(frame); setInterval(tick,1000); setInterval(hubTitheTick,1000);
+</script>
+</body>
+</html>

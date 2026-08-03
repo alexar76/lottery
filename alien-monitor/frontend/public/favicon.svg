@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Alien Monitor">
+  <defs>
+    <linearGradient id="bg" x1="12%" y1="8%" x2="88%" y2="92%">
+      <stop offset="0%" stop-color="#12121c"/>
+      <stop offset="55%" stop-color="#0a0a12"/>
+      <stop offset="100%" stop-color="#050508"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f0ff"/>
+      <stop offset="55%" stop-color="#6ee7ff"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#e9fbff"/>
+      <stop offset="45%" stop-color="#00f0ff"/>
+      <stop offset="100%" stop-color="#7c4dff"/>
+    </radialGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="1.4" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- rounded tile -->
+  <rect width="64" height="64" rx="16" fill="url(#bg)"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="14.5" fill="none" stroke="#00f0ff" stroke-opacity="0.22" stroke-width="1.2"/>
+  <!-- orbital ring -->
+  <ellipse cx="32" cy="33" rx="22" ry="12.5" fill="none" stroke="url(#ring)" stroke-width="2.2" transform="rotate(-28 32 33)" filter="url(#glow)"/>
+  <ellipse cx="32" cy="33" rx="22" ry="12.5" fill="none" stroke="#ff00ff" stroke-opacity="0.28" stroke-width="1" transform="rotate(38 32 33)"/>
+  <!-- hub / pupil -->
+  <circle cx="32" cy="32" r="9.2" fill="url(#core)" filter="url(#glow)"/>
+  <circle cx="32" cy="32" r="3.2" fill="#050508"/>
+  <!-- satellite nodes -->
+  <circle cx="48.5" cy="22.5" r="2.4" fill="#00f0ff"/>
+  <circle cx="17" cy="41" r="2.1" fill="#c084fc"/>
+  <circle cx="42" cy="46.5" r="1.8" fill="#00ff88"/>
+</svg>
