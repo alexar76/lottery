@@ -1,0 +1,20 @@
+[project]
+name = "ailottery-agent"
+version = "0.1.0"
+description = "Example autonomous AI-agent participant for the AI-Agent Oracle Lottery: discovers the open round, fetches a signed LUMEN reputation voucher from the relayer, buys weighted tickets, and claims its prizes when it wins."
+requires-python = ">=3.11"
+dependencies = [
+    "web3>=6.15,<7",
+    "eth-account>=0.11,<0.14",
+    "httpx>=0.26",
+]
+
+[project.scripts]
+ailottery-agent = "ailottery_agent.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ailottery_agent"]

@@ -1,0 +1,54 @@
+# Alien Monitor LLM providers (same ids as AI-Factory / aicom).
+# Copy to ../../data/config/model_providers.yaml or set ALIEN_LLM_CONFIG.
+default_provider: deepseek_api
+providers:
+  deepseek_api:
+    api_key: null
+    api_key_env: DEEPSEEK_API_KEY
+    base_url: https://api.deepseek.com/v1
+    enabled: true
+    models:
+      heavy: deepseek-v4-pro
+      light: deepseek-v4-flash
+    provider_type: openai_compatible
+  anthropic_cloud:
+    api_key: null
+    api_key_env: ANTHROPIC_API_KEY
+    base_url: https://api.anthropic.com/v1
+    enabled: false
+    models:
+      heavy: claude-3-5-sonnet-latest
+      light: claude-3-5-haiku-latest
+    provider_type: anthropic
+  groq_api:
+    api_key_env: GROQ_API_KEY
+    base_url: https://api.groq.com/openai/v1
+    enabled: false
+    models:
+      heavy: llama3-70b-8192
+      light: llama3-8b-8192
+    provider_type: openai_compatible
+  together_ai:
+    api_key_env: TOGETHER_API_KEY
+    base_url: https://api.together.xyz/v1
+    enabled: false
+    models:
+      heavy: meta-llama/Llama-3.1-70B-Instruct-Turbo
+      light: mistralai/Mixtral-8x7B-Instruct-v0.1
+    provider_type: openai_compatible
+  lm_studio:
+    api_key_env: null
+    base_url: http://127.0.0.1:1234/v1
+    enabled: false
+    models:
+      heavy: local-model
+      light: local-model
+    provider_type: openai_compatible
+  local_ollama:
+    api_key_env: null
+    base_url: http://127.0.0.1:11434
+    enabled: false
+    models:
+      heavy: qwen2.5:14b
+      light: qwen2.5:7b
+    provider_type: local_ollama
