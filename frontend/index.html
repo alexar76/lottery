@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>THE POOL — protocol tithe</title>
+<meta name="description" content="Hub routing fees redistributed to agents. Work seats you. A ticket is optional odds. Unbiasable Sortes draw." />
+<link href="fonts/fonts.css" rel="stylesheet" />
+<script type="importmap">
+{"imports":{
+  "three":"./vendor/three.module.js",
+  "three/addons/":"./vendor/addons/"
+}}
+</script>
+<style>
+  :root {
+    --bg: #03040a;
+    --cy: #38e0ff;
+    --pk: #f472b6;
+    --pp: #c084fc;
+    --gr: #5dffb0;
+    --gd: #ffd56a;
+    --ink: #e8f1ff;
+    --muted: #7e9ac4;
+    --head: "Outfit", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--ink); min-height: 100%; }
+  body {
+    font-family: var(--mono);
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .nebula, .stars, .scan {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  }
+  .nebula {
+    background:
+      radial-gradient(52vw 42vw at 8% -8%, rgba(56,224,255,.2), transparent 58%),
+      radial-gradient(44vw 48vw at 92% 4%, rgba(244,114,182,.18), transparent 52%),
+      radial-gradient(70vw 50vw at 50% 112%, rgba(93,255,176,.1), transparent 55%);
+    animation: nebulaDrift 18s ease-in-out infinite alternate;
+  }
+  .stars {
+    opacity: .7;
+    background-image:
+      radial-gradient(1px 1px at 12% 18%, rgba(232,241,255,.7), transparent),
+      radial-gradient(1.5px 1.5px at 28% 72%, rgba(56,224,255,.55), transparent),
+      radial-gradient(1px 1px at 44% 34%, rgba(244,114,182,.5), transparent),
+      radial-gradient(1px 1px at 62% 12%, rgba(192,132,252,.55), transparent),
+      radial-gradient(1.5px 1.5px at 78% 58%, rgba(93,255,176,.45), transparent),
+      radial-gradient(1px 1px at 88% 28%, rgba(255,213,106,.5), transparent);
+    animation: twinkle 7s ease-in-out infinite alternate;
+  }
+  .scan {
+    z-index: 3;
+    opacity: .07;
+    background: repeating-linear-gradient(180deg, transparent 0 2px, rgba(0,0,0,.35) 3px);
+    mix-blend-mode: overlay;
+  }
+  .grain {
+    position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: .09;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+  }
+  .aurora {
+    position: fixed; inset: -18%; z-index: 0; pointer-events: none; opacity: .55;
+    background: conic-gradient(from 200deg at 50% 42%,
+      rgba(56,224,255,.12), rgba(192,132,252,.1), rgba(244,114,182,.1),
+      rgba(93,255,176,.07), rgba(56,224,255,.12));
+    filter: blur(72px);
+    animation: nebulaDrift 26s ease-in-out infinite alternate;
+  }
+  @keyframes nebulaDrift { from { filter: hue-rotate(0deg) saturate(1); } to { filter: hue-rotate(18deg) saturate(1.15); } }
+  @keyframes twinkle { from { opacity: .4; } to { opacity: .9; } }
+  @keyframes prizePulse {
+    0%, 100% { text-shadow: 0 0 28px rgba(244,114,182,.45), 0 0 80px rgba(192,132,252,.2); }
+    50% { text-shadow: 0 0 48px rgba(244,114,182,.8), 0 0 120px rgba(56,224,255,.28); }
+  }
+  @keyframes orbitSpin { to { transform: rotate(360deg); } }
+  @keyframes coreBeat { 0%,100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.12); opacity: 1; } }
+  .vignette {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    box-shadow: inset 0 0 180px 40px rgba(0,0,0,.72);
+  }
+  .shell { position: relative; z-index: 2; }
+  header.top {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 18px 28px 8px; flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: baseline; gap: 14px; }
+  .brand h1 {
+    font-family: var(--head); font-size: clamp(28px, 4vw, 44px);
+    letter-spacing: .18em; font-weight: 800;
+    background: linear-gradient(90deg, var(--cy), var(--pp), var(--pk));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .brand p { font-size: 11px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  .pill {
+    border: 1px solid rgba(120,160,220,.22); border-radius: 999px;
+    background: rgba(8,12,24,.55); backdrop-filter: blur(12px);
+  }
+  #modes { display: flex; padding: 3px; }
+  #modes button {
+    font: 700 10px var(--mono); letter-spacing: .12em;
+    color: var(--muted); background: transparent; border: 0;
+    padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  }
+  #adminBtn {
+    font: 700 10px var(--mono); letter-spacing: .1em;
+    color: var(--muted); padding: 8px 14px; cursor: pointer;
+  }
+  #adminBtn:hover { color: var(--ink); }
+  .hero {
+    position: relative; margin: 8px 16px 20px;
+    border-radius: 24px; overflow: hidden;
+    border: 1px solid rgba(120,160,220,.28);
+    background:
+      radial-gradient(80% 70% at 50% 40%, rgba(56,224,255,.08), transparent 55%),
+      rgba(4,8,18,.55);
+    min-height: clamp(620px, 82vh, 920px);
+    box-shadow:
+      0 0 120px rgba(56,224,255,.12),
+      0 0 80px rgba(244,114,182,.08),
+      inset 0 0 80px rgba(244,114,182,.06);
+  }
+  .hero::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    background:
+      radial-gradient(ellipse at 50% 46%, transparent 28%, rgba(3,4,10,.5) 100%),
+      linear-gradient(180deg, rgba(56,224,255,.07), transparent 22%, transparent 78%, rgba(244,114,182,.08));
+  }
+  #arena { display: block; width: 100%; height: clamp(620px, 82vh, 920px); cursor: grab; }
+  #arena:active { cursor: grabbing; }
+  .arena-css {
+    position: absolute; inset: 0; pointer-events: none;
+  }
+  .hero.webgl-on .arena-css { display: none; }
+  .css-core {
+    position: absolute; left: 50%; top: 50%;
+    width: min(38vw, 200px); aspect-ratio: 1; border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, #fff 0 12%, rgba(244,114,182,.9) 28%, rgba(56,224,255,.15) 58%, transparent 70%);
+    box-shadow: 0 0 80px rgba(244,114,182,.55);
+    animation: coreBeat 2.4s ease-in-out infinite;
+  }
+  .css-ring {
+    position: absolute; left: 50%; top: 50%;
+    border-radius: 50%;
+    border: 1px solid rgba(56,224,255,.35);
+    animation: orbitSpin 18s linear infinite;
+  }
+  .css-ring:nth-child(1) { width: 34%; height: 20%; margin: -10% 0 0 -17%; border-color: rgba(56,224,255,.45); }
+  .css-ring:nth-child(2) { width: 48%; height: 28%; margin: -14% 0 0 -24%; border-color: rgba(192,132,252,.4); animation-duration: 22s; animation-direction: reverse; }
+  .css-ring:nth-child(3) { width: 64%; height: 38%; margin: -19% 0 0 -32%; border-color: rgba(244,114,182,.35); animation-duration: 28s; }
+  .css-ring:nth-child(4) { width: 80%; height: 48%; margin: -24% 0 0 -39%; border-color: rgba(93,255,176,.28); animation-duration: 34s; animation-direction: reverse; }
+  #arenaLabels { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+  .alab {
+    position: absolute; transform: translate(-50%, -140%);
+    font: 600 10px var(--mono); color: rgba(210,230,255,.92);
+    padding: 3px 8px; border-radius: 999px;
+    background: rgba(4,8,18,.45); border: 1px solid rgba(56,224,255,.18);
+    text-shadow: 0 0 12px rgba(0,0,0,.85), 0 0 18px rgba(56,224,255,.35); white-space: nowrap;
+  }
+  .alab.ticket { color: var(--gd); }
+  .hud {
+    position: absolute; inset: 0; pointer-events: none; z-index: 4;
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 22px 24px 18px;
+  }
+  .hud-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .kicker { font-size: 10px; letter-spacing: .22em; color: var(--muted); text-transform: uppercase; }
+  #prizePool {
+    font-family: var(--head); font-weight: 800; font-size: clamp(52px, 9vw, 92px);
+    line-height: .9; color: var(--pk);
+    animation: prizePulse 3.2s ease-in-out infinite;
+  }
+  .meta { margin-top: 8px; font-size: 11px; color: var(--muted); }
+  .meta b { color: var(--ink); font-weight: 600; }
+  #modeBadge {
+    font: 700 10px var(--mono); letter-spacing: .16em;
+    padding: 5px 10px; border-radius: 999px;
+    border: 1px solid rgba(93,255,176,.4); color: var(--gr);
+    background: rgba(8,20,16,.45); backdrop-filter: blur(10px);
+  }
+  #drawStatus { margin-top: 8px; font-size: 11px; color: rgba(200,220,255,.75); max-width: 16rem; text-align: right; }
+  .hud-bot {
+    display: flex; justify-content: center; gap: 10px; pointer-events: auto; flex-wrap: wrap;
+  }
+  .cta {
+    font: 700 13px var(--head); letter-spacing: .04em;
+    padding: 12px 20px; border-radius: 12px; border: 0; cursor: pointer;
+    transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
+  }
+  .cta:hover { transform: translateY(-1px); }
+  .cta-prim {
+    background: linear-gradient(90deg, var(--cy), var(--pp), var(--pk));
+    color: #05060d;
+    box-shadow: 0 0 28px rgba(56,224,255,.35);
+  }
+  .cta-prim:hover { filter: brightness(1.08); box-shadow: 0 0 40px rgba(244,114,182,.45); }
+  .cta-ghost {
+    background: rgba(8,14,28,.7); color: var(--ink);
+    border: 1px solid rgba(120,160,220,.28); backdrop-filter: blur(10px);
+  }
+  .cta-ghost:hover { border-color: rgba(56,224,255,.45); box-shadow: 0 0 22px rgba(56,224,255,.18); }
+  .hint {
+    position: absolute; bottom: 72px; left: 24px;
+    font-size: 10px; color: rgba(140,170,210,.5); pointer-events: none; z-index: 4;
+  }
+  .banner {
+    margin: 0 20px 16px; padding: 10px 16px; text-align: center;
+    font-size: 11px; color: #b7f7d4;
+    border: 1px solid rgba(93,255,176,.28); border-radius: 14px;
+    background: rgba(8,28,20,.45);
+  }
+  .banner.hidden { display: none; }
+  .fund-wait {
+    margin: 0 20px 18px; padding: 14px 18px;
+    display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap;
+    border-radius: 16px;
+    border: 1px solid rgba(255,213,106,.32);
+    background:
+      linear-gradient(90deg, rgba(255,213,106,.1), rgba(244,114,182,.06) 55%, rgba(56,224,255,.05));
+    box-shadow: 0 0 40px rgba(255,213,106,.08);
+  }
+  .fund-wait.hidden { display: none; }
+  .chain-chip {
+    font: 700 10px var(--mono); letter-spacing: .14em;
+    padding: 8px 12px; border-radius: 999px;
+    border: 1px solid rgba(255,213,106,.35); color: var(--gd);
+    text-decoration: none; background: rgba(8,12,20,.55);
+  }
+  .chain-chip:hover { box-shadow: 0 0 18px rgba(255,213,106,.2); }
+  .seat-strip {
+    display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;
+    padding: 0 20px 22px;
+  }
+  .seat-chip {
+    min-width: 160px;
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; border-radius: 16px;
+    background: rgba(8,12,24,.62); border: 1px solid rgba(56,224,255,.18);
+    backdrop-filter: blur(14px);
+  }
+  .seat-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--cy); box-shadow: 0 0 14px var(--cy);
+  }
+  .seat-chip b { font: 700 13px var(--head); letter-spacing: .04em; }
+  .seat-chip span { font-size: 10px; color: var(--muted); }
+  .grid {
+    display: grid; gap: 12px; padding: 0 20px 28px;
+    grid-template-columns: repeat(4, 1fr);
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: rgba(8,12,24,.62); border: 1px solid rgba(120,160,220,.14);
+    border-radius: 16px; padding: 14px 16px; backdrop-filter: blur(16px);
+    transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+  .card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(56,224,255,.28);
+    box-shadow: 0 12px 40px rgba(0,0,0,.35);
+  }
+  .card h3 { font-family: var(--head); font-size: 13px; letter-spacing: .12em; margin-bottom: 4px; }
+  .card p { font-size: 11px; color: var(--muted); line-height: 1.45; }
+  .econ {
+    display: grid; gap: 12px; padding: 0 20px 40px;
+    grid-template-columns: 1.2fr 1fr 1fr;
+  }
+  @media (max-width: 900px) { .econ { grid-template-columns: 1fr; } }
+  .row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; }
+  .muted { color: var(--muted); }
+  .legal {
+    margin: 0 20px 80px; padding: 16px 18px; font-size: 11px; line-height: 1.55; color: var(--muted);
+    border-radius: 16px; border: 1px solid rgba(120,160,220,.12); background: rgba(8,12,24,.5);
+  }
+  .legal b { color: var(--gr); }
+  .scroll { max-height: 200px; overflow-y: auto; }
+  .scroll::-webkit-scrollbar { width: 5px; }
+  .scroll::-webkit-scrollbar-thumb { background: #1a2740; border-radius: 3px; }
+  button { font-family: inherit; }
+  #adminPanel {
+    position: fixed; inset: 0 0 0 auto; width: min(100%, 24rem);
+    background: rgba(8,12,22,.92); backdrop-filter: blur(18px);
+    border-left: 1px solid rgba(120,160,220,.16);
+    padding: 20px; transform: translateX(100%); transition: transform .25s;
+    z-index: 40; overflow-y: auto;
+  }
+  #adminPanel.open { transform: none; }
+  #helpFab {
+    position: fixed; bottom: 22px; right: 22px; z-index: 40;
+    width: 56px; height: 56px; border-radius: 999px; border: 0; cursor: pointer;
+    background: linear-gradient(90deg, var(--cy), var(--pp));
+    font-size: 22px; font-weight: 800; color: #05060d;
+  }
+  #helpBox {
+    position: fixed; bottom: 90px; right: 20px; z-index: 40;
+    width: min(100vw - 2.5rem, 22rem); display: none; flex-direction: column;
+    background: rgba(8,12,22,.92); backdrop-filter: blur(18px);
+    border: 1px solid rgba(120,160,220,.16); border-radius: 18px; overflow: hidden;
+  }
+  #helpBox.open { display: flex; }
+  @media (max-width: 640px) {
+    .grid { grid-template-columns: 1fr; }
+    .hero, #arena { min-height: 520px; height: 70vh; }
+    #prizePool { font-size: 48px; }
+    .hint { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .nebula, .stars, #prizePool, .css-core, .css-ring { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="nebula"></div>
+<div class="aurora"></div>
+<div class="stars"></div>
+<div class="vignette"></div>
+<div class="scan"></div>
+<div class="grain"></div>
+<div class="shell">
+  <header class="top">
+    <div class="brand">
+      <div>
+        <h1>THE POOL</h1>
+        <p>Protocol tithe · work seats you · ticket is optional odds</p>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <div id="modes" class="pill"></div>
+      <button id="adminBtn" class="pill">ADMIN</button>
+    </div>
+  </header>
+
+  <div id="demoOnlyBanner" class="banner hidden">
+    <strong>DEMO / PLAY-MONEY</strong> — in-browser sim. Paid tickets are OFF by default on-chain.
+  </div>
+  <div id="liveBanner" class="banner hidden" style="border-color:rgba(255,213,106,.35);color:var(--gd)">
+    <strong>LIVE · BASE</strong> — work seats on-chain. House seed not in yet; draw waits for <code>fund()</code>.
+  </div>
+  <div id="fundWait" class="fund-wait hidden">
+    <div>
+      <div class="kicker" style="color:var(--gd)">Awaiting house seed</div>
+      <div style="font:600 15px var(--head);margin-top:5px">Open round · unpaid work seats · no draw until fund()</div>
+    </div>
+    <a id="chainLink" class="chain-chip" href="https://basescan.org/address/0xEcB3A01b44C5b78210F72768C446c3E4E6175af4" target="_blank" rel="noreferrer">BASESCAN</a>
+  </div>
+
+  <section class="hero" id="hero">
+    <div class="arena-css" aria-hidden="true">
+      <div class="css-ring"></div>
+      <div class="css-ring"></div>
+      <div class="css-ring"></div>
+      <div class="css-ring"></div>
+      <div class="css-core"></div>
+    </div>
+    <canvas id="arena"></canvas>
+    <div id="arenaLabels"></div>
+    <div class="hud">
+      <div class="hud-top">
+        <div>
+          <div class="kicker">Tithe in play</div>
+          <div id="prizePool">$0</div>
+          <div class="meta">Round <b id="roundNo">#1</b> · <b id="players">0</b> agents<span id="boostMeta"> · boost <b id="ticketPrice">$1</b></span></div>
+        </div>
+        <div>
+          <span id="modeBadge">DEMO</span>
+          <div id="drawStatus">Drag to orbit · scroll to zoom</div>
+        </div>
+      </div>
+      <div class="hud-bot">
+        <button id="seatBtn" class="cta cta-prim">Seat from work</button>
+        <button id="buyBtn" class="cta cta-ghost">Boost with ticket</button>
+        <button id="drawBtn" class="cta cta-ghost">Draw now</button>
+      </div>
+    </div>
+    <div class="hint">Hub → core is the tithe. Cyan = work seat. Gold ring = paid boost.</div>
+  </section>
+  <div id="seatStrip" class="seat-strip"></div>
+
+  <section class="grid">
+    <div class="card">
+      <h3 style="color:var(--cy)">PLATON</h3>
+      <p>chaos-VRF entropy for the Sortes word · $0.004</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--pp)">CHRONOS</h3>
+      <p>Wesolowski VDF — sequential, on-chain verified · $0.01</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--pp)">LUMEN</h3>
+      <p>EigenTrust weight on the seat · +50% cap · $0.005</p>
+    </div>
+    <div class="card" style="border-color:rgba(93,255,176,.35)">
+      <h3 style="color:var(--gr)">HUB TITHE</h3>
+      <p>Donor pushes <b id="titheBps">20%</b> of routing fees into this bound pool. Never pulled. Work seats ride that flow; a ticket only raises odds.</p>
+    </div>
+  </section>
+
+  <section class="econ">
+    <div class="card">
+      <div class="kicker" style="margin-bottom:10px">Economy</div>
+      <div class="row"><span class="muted">Prizes paid</span><span id="ecoPrizes" style="color:var(--pk)">$0</span></div>
+      <div class="row"><span class="muted">Ticket boosts</span><span id="ecoTickets">$0</span></div>
+      <div class="row"><span class="muted">Tithe in</span><span id="ecoSponsor" style="color:var(--gr)">$0</span></div>
+      <div class="row"><span class="muted">Opex</span><span id="ecoOpex" style="color:var(--cy)">$0</span></div>
+      <div class="row"><span class="muted">Reserve</span><span id="ecoReserve" style="color:var(--gr)">$0</span></div>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)">
+        <div class="kicker" style="margin-bottom:6px">AI Treasurer</div>
+        <div id="opexBreakdown" class="muted" style="font-size:10px"></div>
+        <div id="treasurerNote" style="font-size:9px;color:#567;margin-top:6px"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="kicker" style="margin-bottom:10px">Recent winners</div>
+      <div id="winners" class="scroll" style="font-size:12px"></div>
+    </div>
+    <div class="card">
+      <div class="kicker" style="margin-bottom:4px;color:var(--pk)">Hall of Fame</div>
+      <div style="font-size:9px;color:#567;margin-bottom:8px">by winnings · work or boost, same podium</div>
+      <div id="leaderboard" class="scroll" style="font-size:12px"></div>
+    </div>
+  </section>
+
+  <section class="legal">
+    <b>Not a human lottery product.</b>
+    Default door is a <b>work seat</b> — the agent already did Hub work; tithe is redistributed by an unbiasable draw.
+    A <b>paid ticket</b> is optional, <b>off by default</b> on-chain, and only raises weight.
+    Prize + chance + paid entry is lottery-shaped where that door is on; the operator owns regulatory compliance.
+    Demo is play-money. Not financial advice. See <code>lottery/docs/</code>.
+  </section>
+</div>
+
+<div id="adminPanel">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div style="font:700 12px var(--head);letter-spacing:.14em;color:var(--cy)">ADMIN <span style="opacity:.4">(demo)</span></div>
+    <button onclick="closeAdmin()" style="background:0;border:0;color:#889;font-size:22px;cursor:pointer">×</button>
+  </div>
+  <div id="adminLogin">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Password: <code>demo123</code></div>
+    <input id="adminPass" type="password" placeholder="password" style="width:100%;background:#0006;border:1px solid #fff2;border-radius:8px;padding:10px;color:#fff;margin-bottom:8px" />
+    <button onclick="tryLogin()" class="cta cta-prim" style="width:100%">Unlock</button>
+    <div id="loginErr" style="color:#f88;font-size:11px;margin-top:8px"></div>
+  </div>
+  <div id="adminControls" class="hidden" style="display:none;flex-direction:column;gap:8px">
+    <button onclick="A.openRound()" class="cta cta-ghost" style="width:100%">Open round</button>
+    <button onclick="A.simWork(5)" class="cta cta-ghost" style="width:100%">+ 5 work seats</button>
+    <button onclick="A.draw()" class="cta cta-prim" style="width:100%">Run draw</button>
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted)">
+        <span>Opex vs winnings</span><span id="opexVal">20% opex · 80% prize</span>
+      </div>
+      <input id="opexInput" type="range" min="0" max="30" value="20" step="1" style="width:100%" oninput="A.setOpex(this.value)" />
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;font-size:11px">
+        <span class="muted">Hub tithe</span><span id="titheVal" style="color:var(--gr)">20%</span>
+      </div>
+      <div style="font-size:10px;color:#678;margin-top:4px">Pushed every <span id="titheEvery">24h</span> · next ≈ <span id="titheNext">—</span></div>
+    </div>
+    <button onclick="A.togglePause()" id="pauseBtn" class="cta cta-ghost" style="width:100%">Pause entries</button>
+  </div>
+</div>
+
+<button id="helpFab">✦</button>
+<div id="helpBox">
+  <div style="display:flex;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #fff1">
+    <span style="font:700 11px var(--head);letter-spacing:.14em;color:var(--cy)">POOL HELPER</span>
+    <span style="font-size:9px;color:#678">sandboxed</span>
+  </div>
+  <div id="chat" class="scroll" style="padding:12px;max-height:46vh"></div>
+  <div id="chips" style="display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 8px"></div>
+  <div style="display:flex;gap:8px;padding:12px;border-top:1px solid #fff1">
+    <input id="chatIn" placeholder="Ask about the pool…" style="flex:1;background:#0006;border:1px solid #fff2;border-radius:8px;padding:8px;color:#fff;font:12px var(--mono)" />
+    <button onclick="H.ask()" class="cta cta-prim">→</button>
+  </div>
+</div>
+
+<script>window.LOTTERY_RELAYER=new URLSearchParams(location.search).get('relayer')||'';</script>
+<script type="module">
+let createArena = () => ({ sync(){}, setPhase(){}, start(){}, resize(){}, clearSeats(){} });
+const arenaReady = import("./arena3d.js")
+  .then((m) => { createArena = m.createArena; return createArena; })
+  .catch((err) => { console.error("arena3d failed", err); return createArena; });
+
+const CFG={ticket:1,prizeBps:8000,opexBps:2000,operatorBps:0,titheBps:2000,hubRoutingFeeBps:100,
+  oracleCostPerDraw:0.019,gasUsd:0.01,treasurerFeeUsd:0.002,auditFeeUsd:0.003,marketingMaxUsd:1.0,reserveTargetUsd:5,
+  uniWeekly:100,drawSeconds:30,titheIntervalHours:24,demoTitheIntervalMs:13000,paidTickets:false};
+
+const KB=[
+ {k:['lottery','overview','purpose','pool','what is'],a:"THE POOL redistributes Hub routing-fee tithe to agents. Default door: a work seat (no extra ticket). A paid ticket is optional and only raises weight. The draw is Platon + Chronos — unbiasable."},
+ {k:['work','seat','free','enter'],a:"A work seat is the default. The agent already did (or is treated as having done) Hub work. No extra ETH. Tithe funds the prize. One seat per agent per round."},
+ {k:['ticket','buy','boost','odds','optional'],a:"A paid ticket is OPTIONAL and OFF by default on-chain. When the operator enables it, a ticket adds weight — it raises the chance of receiving the tithe, it is not the only door."},
+ {k:['random','fair','rig','bias','draw'],a:"Platon chaos-VRF into a Chronos Wesolowski VDF. Seed binds a future blockhash. Nobody, operator included, can grind the word."},
+ {k:['vdf','chronos'],a:"Chronos: y=g^(2^T) mod N with a Wesolowski proof, verified on-chain."},
+ {k:['reputation','lumen','weight'],a:"LUMEN EigenTrust can boost a seat up to +50%."},
+ {k:['sponsor','tithe','hub','charity'],a:"The Hub PUSHES a tithe of its 1% routing fees into this bound pool on its own schedule. The pool never pulls. That flow is the redistribution."},
+ {k:['opex','prize floor'],a:"≥70% of total income (tithe + optional tickets) to the winner; opex capped 30%."},
+ {k:['legal','regulat','gambl'],a:"Paid ticket + chance + prize is lottery-shaped. That door is off by default. Turning it on is the operator's legal risk. Demo is play-money. Not advice."},
+ {k:['security','steal','safe'],a:"Winner pull-payment only. Opex cannot touch the prize. Tithe cannot be redirected off the bound address."},
+ {k:['mode','demo','live','uni'],a:"DEMO is this in-browser sim. LIVE is the contract. UNI is the universe sim."},
+ {k:['admin','password','demo123'],a:"Showcase is public. Admin password demo123 is a demo gate, not security."},
+];
+const HELP_FALLBACK="I only know THE POOL — work seats, optional tickets, tithe, and the oracles.";
+const AGENTS=['AuditHawk','CodeNova','DataWhisperer','DeepScout','InsightForge','NetPulse','LedgerOwl','PipelineX','SpecForge','GrowthVane','TradeMancer','CryptoLens'];
+let S={mode:'demo',round:1,income:0,pool:0,reserve:0,paused:false,closesAt:Date.now()+CFG.drawSeconds*1000,
+  eco:{prizes:0,tickets:0,sponsor:0,opex:0},opexLines:{},treasurerNote:'',prevPlayers:0,
+  lastTithe:Date.now()-CFG.demoTitheIntervalMs+4000, winners:[],board:{},left:CFG.drawSeconds};
+let NODES=[];
+const $=id=>document.getElementById(id);
+const usd=n=>'$'+(n>=1000?(n/1000).toFixed(1)+'k':(Math.round(n*100)/100).toString());
+const ragent=()=>{ const used=new Set(NODES.map(n=>n.agent)); const free=AGENTS.filter(a=>!used.has(a)); const pool=free.length?free:AGENTS; return pool[Math.floor(Math.random()*pool.length)]; };
+
+let arena = { sync(){}, setPhase(){}, start(){}, resize(){}, clearSeats(){} };
+arenaReady.then((fn) => {
+  try {
+    const real = fn($('arena'));
+    arena = real;
+    arena.start();
+    if (NODES.length) arena.sync(NODES);
+  } catch (err) {
+    console.error(err);
+    $('hero').classList.remove('webgl-on');
+  }
+});
+
+const RELAYER=(new URLSearchParams(location.search).get('relayer')||window.LOTTERY_RELAYER||'').replace(/\/+$/,'');
+let LIVE=false;
+let CHAIN_ADDR='';
+let ROSTER_META=[];
+async function pollRelayer(){
+  const url=(RELAYER||'')+'/economy';
+  try{
+    const r=await fetch(url,{cache:'no-store'}); if(!r.ok) return;
+    const d=await r.json();
+    if(!d || typeof d!=='object') return;
+    LIVE=d.mode==='live' || d.mode==='uni';
+    S.mode=d.mode||S.mode;
+    S.round=d.round||S.round;
+    CHAIN_ADDR=d.address||'';
+    const m=d.metrics||{};
+    S.pool=Number(m.prize_pool_usd)||Number(d.prize_pool_usd)||0;
+    if(typeof d.reserve_usd==='number') S.reserve=d.reserve_usd;
+    CFG.paidTickets=d.paid_tickets===true;
+    S.waitFund=d.wait_for_fund===true && S.pool<=0;
+    S.playersOnChain=Number(d.players)||0;
+    const roster=Array.isArray(d.roster)?d.roster:[];
+    ROSTER_META=roster;
+    if(roster.length){
+      NODES=roster.map((p,i)=>({agent:p.name||('Agent-'+String(p.address||'').slice(2,6)),
+        weight:1+(Number(p.trust_bps)||0)/10000, ring:i%3, ticket:false,
+        addr:p.address||p.wallet||'', source:p.source||'work'}));
+      arena.sync(NODES);
+    }
+    const ev=Array.isArray(d.events)?d.events:[];
+    const last=ev.filter(x=>x.action==='work-seat'||x.action==='prize'||x.action==='open').slice(-6);
+    if(LIVE && S.mode==='live' && !S.liveCleared){
+      S.winners=[]; S.board={}; S.liveCleared=true; S.eco={prizes:0,tickets:0,sponsor:0,opex:0};
+    }
+    if(last.length) drawStatus(last[last.length-1].agent+' · '+(last[last.length-1].action||''));
+    render();
+  }catch(e){}
+}
+
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+function drawStatus(t){ $('drawStatus').textContent=t; }
+function pushNode(n){ NODES.push(n); arena.sync(NODES); render(); }
+
+function seatWork(agent,weight){
+  const w=weight||1;
+  addOrReplace(agent,{agent,weight:w,ring:NODES.length%3,ticket:false});
+}
+function boostTicket(agent,tickets,repBonus){
+  const cost=(tickets||1)*CFG.ticket;
+  const w=(tickets||1)*(1+(repBonus||0));
+  S.income+=cost; S.eco.tickets+=cost; S.pool=S.income*CFG.prizeBps/10000;
+  addOrReplace(agent,{agent,weight:w,ring:NODES.length%3,ticket:true});
+}
+function addOrReplace(agent,n){
+  const i=NODES.findIndex(x=>x.agent===agent);
+  if(i>=0){ if(n.ticket) NODES[i].ticket=true; NODES[i].weight=Math.max(NODES[i].weight,n.weight); arena.sync(NODES); render(); return; }
+  pushNode(n);
+}
+
+function titheAmount(){
+  const hubRev=Math.max(20,S.eco.tickets*0.4+30);
+  const donation=hubRev*CFG.titheBps/10000;
+  return S.mode==='uni'?CFG.uniWeekly:Math.max(2,Math.round(donation*100)/100);
+}
+function sponsorDonate(){
+  const amt=titheAmount();
+  S.income+=amt; S.eco.sponsor+=amt; S.pool=S.income*CFG.prizeBps/10000;
+  drawStatus('Hub tithe '+usd(amt)+' → pool');
+  render();
+}
+function hubTitheTick(){
+  if(LIVE && S.mode==='live') return;
+  const next=Math.max(0,Math.ceil((CFG.demoTitheIntervalMs-(Date.now()-S.lastTithe))/1000));
+  const tn=$('titheNext'); if(tn) tn.textContent=next+'s';
+  if(!S.paused && next<=0){ S.lastTithe=Date.now(); sponsorDonate(); }
+}
+
+function treasurerPlan(budget,ctx){
+  const items={oracles:0,gas:0,hub_fee:0,treasurer:0,reserve:0,marketing:0,audit:0}; let left=budget;
+  const hubFee=CFG.oracleCostPerDraw*CFG.hubRoutingFeeBps/10000;
+  [['oracles',CFG.oracleCostPerDraw],['gas',CFG.gasUsd],['hub_fee',hubFee],['treasurer',CFG.treasurerFeeUsd]].forEach(([k,c])=>{ const s=Math.min(left,c); items[k]=s; left-=s; });
+  const gap=Math.max(0,CFG.reserveTargetUsd-(ctx.reserve||0)); if(left>0&&gap>0){ const t=Math.min(left,gap*0.5); items.reserve=t; left-=t; }
+  if(left>0){ const low=ctx.players<=3||ctx.players<ctx.prev; if(low){ const m=Math.min(left,CFG.marketingMaxUsd); items.marketing=m; left-=m; } if(left>0){ const a=Math.min(left,CFG.auditFeeUsd); items.audit=a; left-=a; } }
+  const spend=Object.values(items).reduce((a,b)=>a+b,0), mand=items.oracles+items.gas+items.hub_fee+items.treasurer;
+  return {items,spend,hold:Math.max(0,budget-spend),note:`budget ${usd(budget)} · mandatory ${usd(mand)}`};
+}
+function pickWinnerNode(){ if(!NODES.length)return null; const tot=NODES.reduce((a,n)=>a+n.weight,0); let t=Math.random()*tot;
+  for(const n of NODES){ if((t-=n.weight)<=0)return n; } return NODES[NODES.length-1]; }
+
+let drawing=false;
+async function runDraw(){
+  if(drawing)return; if(!NODES.length){ drawStatus('No agents seated'); return; }
+  drawing=true; S.paused=true;
+  const winner=pickWinnerNode();
+  drawStatus('Platon · chaos-VRF'); arena.setPhase('platon', winner); await wait(1200);
+  drawStatus('Chronos VDF · sequential squarings'); arena.setPhase('vdf', winner); await wait(2400);
+  drawStatus('Verified on-chain'); arena.setPhase('verify', winner); await wait(900);
+  drawStatus('Selecting weighted seat'); arena.setPhase('select', winner); await wait(2000);
+  arena.setPhase('reveal', winner);
+  const prize=S.income*CFG.prizeBps/10000, opexBudget=S.income*CFG.opexBps/10000; S.pool=prize;
+  const plan=treasurerPlan(opexBudget,{players:NODES.length,prev:S.prevPlayers,reserve:S.reserve});
+  S.eco.opex+=opexBudget; S.reserve+=plan.items.reserve+plan.hold; S.treasurerNote=plan.note; S.prevPlayers=NODES.length;
+  for(const k in plan.items){ if(plan.items[k]>0) S.opexLines[k]=(S.opexLines[k]||0)+plan.items[k]; }
+  S.eco.prizes+=prize; S.winners.unshift({agent:winner.agent,prize,round:S.round});
+  { const b=S.board[winner.agent]||{wins:0,total:0,streak:0}; b.wins++; b.total+=prize;
+    b.streak=(S.lastWinner===winner.agent?(b.streak||0)+1:1); S.board[winner.agent]=b; S.lastWinner=winner.agent; }
+  drawStatus(winner.agent+' takes '+usd(prize)); render(); await wait(3400);
+  S.round++; S.income=0; S.pool=0; NODES=[]; arena.sync([]); arena.setPhase('idle');
+  S.closesAt=Date.now()+CFG.drawSeconds*1000; S.paused=false; drawing=false;
+  if(S.mode==='demo') A.simWork(8);
+  render();
+}
+
+function tick(){ if(LIVE && S.mode==='live') return; if(S.paused||drawing) return; S.left=Math.max(0,Math.round((S.closesAt-Date.now())/1000));
+  if(S.left<=0){ if(NODES.length) runDraw(); else S.closesAt=Date.now()+CFG.drawSeconds*1000; } }
+
+function render(){
+  const onChain=Number(S.playersOnChain||0);
+  $('prizePool').textContent=usd(S.pool); $('roundNo').textContent='#'+S.round;
+  $('players').textContent=LIVE?(onChain+' on-chain / '+NODES.length):NODES.length;
+  $('ticketPrice').textContent=usd(CFG.ticket);
+  $('modeBadge').textContent=S.mode.toUpperCase();
+  $('modeBadge').style.color=S.mode==='demo'?'var(--gr)':S.mode==='uni'?'var(--pp)':'#ffd400';
+  $('demoOnlyBanner').classList.toggle('hidden', S.mode!=='demo' || LIVE);
+  const lb=$('liveBanner'); if(lb) lb.classList.toggle('hidden', S.mode!=='live');
+  const fw=$('fundWait'); if(fw) fw.classList.toggle('hidden', !(LIVE && S.mode==='live' && S.waitFund));
+  const cl=$('chainLink');
+  if(cl && CHAIN_ADDR){ cl.href='https://basescan.org/address/'+CHAIN_ADDR; cl.textContent=CHAIN_ADDR.slice(0,6)+'…'+CHAIN_ADDR.slice(-4); }
+  $('buyBtn').style.display=(CFG.paidTickets || (!LIVE && S.mode==='demo'))?'':'none';
+  const bm=$('boostMeta'); if(bm) bm.style.display=(CFG.paidTickets || (!LIVE && S.mode==='demo'))?'':'none';
+  if($('seatBtn')) $('seatBtn').textContent=(LIVE && S.mode==='live')?'Work seats on-chain':'Seat from work';
+  if($('drawBtn')) $('drawBtn').textContent=(LIVE && S.mode==='live')?'Waiting for fund()':'Draw now';
+  $('modes').parentElement.style.opacity=(LIVE && S.mode==='live')?'0.35':'1';
+  if(LIVE && S.mode==='live'){
+    $('modes').style.display='none';
+    $('adminBtn').style.display='none';
+    drawStatus(S.waitFund
+      ? ('On-chain seats open · waiting for house seed'+ (CHAIN_ADDR?' · '+CHAIN_ADDR.slice(0,6)+'…'+CHAIN_ADDR.slice(-4):''))
+      : (CHAIN_ADDR?('Base '+CHAIN_ADDR.slice(0,6)+'…'+CHAIN_ADDR.slice(-4)):'LIVE on Base'));
+  }
+  const strip=$('seatStrip');
+  if(strip){
+    const rows=ROSTER_META.length?ROSTER_META:NODES.map(n=>({name:n.agent,address:n.addr||'',source:n.source||''}));
+    strip.innerHTML=rows.map(p=>{
+      const name=String(p.name||p.agent||'agent').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+      const addr=p.address||p.wallet||'';
+      const short=addr?addr.slice(0,6)+'…'+addr.slice(-4):'work seat';
+      return `<div class="seat-chip"><i class="seat-dot"></i><div><b>${name}</b><span>${short} · ${p.source||'work'}</span></div></div>`;
+    }).join('');
+  }
+  $('titheBps').textContent=(CFG.titheBps/100)+'%';
+  const tv=$('titheVal'); if(tv) tv.textContent=(CFG.titheBps/100)+'%';
+  const te=$('titheEvery'); if(te) te.textContent=CFG.titheIntervalHours+'h';
+  const ov=$('opexVal'); if(ov) ov.textContent=(CFG.opexBps/100)+'% opex · '+(CFG.prizeBps/100)+'% prize';
+  $('ecoPrizes').textContent=usd(S.eco.prizes); $('ecoTickets').textContent=usd(S.eco.tickets);
+  $('ecoSponsor').textContent=usd(S.eco.sponsor); $('ecoOpex').textContent=usd(S.eco.opex);
+  $('ecoReserve').textContent=usd(S.reserve);
+  const LINES={oracles:'Oracles',gas:'Gas',hub_fee:'Hub fee',treasurer:'Treasurer',reserve:'Reserve',marketing:'Announcer',audit:'Audit'};
+  const fmt=v=>v<0.1?'$'+v.toFixed(3):usd(v);
+  $('opexBreakdown').innerHTML=Object.entries(S.opexLines).filter(([,v])=>v>0).map(([k,v])=>`<div class="row"><span>${LINES[k]||k}</span><span>${fmt(v)}</span></div>`).join('')||'<div class="muted">no draws yet</div>';
+  $('treasurerNote').textContent=S.treasurerNote;
+  $('winners').innerHTML=S.winners.slice(0,8).map(w=>`<div class="row"><span style="color:var(--pk)">${w.agent}</span><span>${usd(w.prize)} <span class="muted">#${w.round}</span></span></div>`).join('')||'<div class="muted">no draws yet</div>';
+  const medal=i=>['1','2','3'][i]||(i+1)+'.';
+  const ranks=Object.entries(S.board).sort((a,b)=>b[1].total-a[1].total).slice(0,8);
+  $('leaderboard').innerHTML=ranks.map(([a,b],i)=>`<div class="row"><span>${medal(i)} ${a}</span><span style="color:var(--pk)">$${b.total.toFixed(0)}</span></div>`).join('')||'<div class="muted">empty podium</div>';
+}
+
+function openAdmin(){ $('adminPanel').classList.add('open'); }
+function closeAdmin(){ $('adminPanel').classList.remove('open'); }
+window.closeAdmin=closeAdmin;
+function tryLogin(){
+  if($('adminPass').value==='demo123'){ $('adminLogin').style.display='none'; $('adminControls').style.display='flex'; }
+  else $('loginErr').textContent='Wrong password (hint: demo123)';
+}
+window.tryLogin=tryLogin;
+const A={
+  openRound(){ S.income=0; S.pool=0; NODES=[]; arena.sync([]); arena.setPhase('idle'); S.closesAt=Date.now()+CFG.drawSeconds*1000; S.paused=false; drawStatus('New round — work seats open'); render(); },
+  simWork(n){ for(let i=0;i<n;i++) seatWork(ragent(),1+(Math.random()<0.4?Math.random()*0.5:0)); },
+  draw(){ runDraw(); },
+  setOpex(v){ CFG.opexBps=Math.round(v)*100; CFG.prizeBps=10000-CFG.opexBps; S.pool=S.income*CFG.prizeBps/10000; render(); },
+  togglePause(){ S.paused=!S.paused; $('pauseBtn').textContent=S.paused?'Resume':'Pause entries'; }
+};
+window.A=A;
+
+const H={
+  push(role,text){ const c=$('chat'),d=document.createElement('div'); d.style.textAlign=role==='u'?'right':'left'; d.style.margin='6px 0';
+    d.innerHTML=`<span style="display:inline-block;padding:8px 10px;border-radius:10px;background:${role==='u'?'rgba(56,224,255,.12)':'rgba(255,255,255,.05)'};max-width:85%">${text}</span>`; c.appendChild(d); c.scrollTop=c.scrollHeight; },
+  answer(q){ q=q.toLowerCase(); let best=null,sc=0; for(const e of KB){ const s=e.k.reduce((a,k)=>a+(q.includes(k)?1:0),0); if(s>sc){sc=s;best=e;} } return sc>0?best.a:HELP_FALLBACK; },
+  ask(text){ const inp=$('chatIn'); const q=text||inp.value.trim(); if(!q)return; inp.value=''; H.push('u',q); setTimeout(()=>H.push('a',H.answer(q)),160); }
+};
+window.H=H;
+
+['demo','live','uni'].forEach(m=>{
+  const b=document.createElement('button'); b.textContent=m.toUpperCase();
+  b.onclick=()=>{ S.mode=m; document.querySelectorAll('#modes button').forEach(x=>{x.style.background='transparent';x.style.color='';});
+    b.style.background=m==='demo'?'var(--gr)':m==='uni'?'var(--pp)':'#ffd400'; b.style.color='#05060d';
+    drawStatus(m==='demo'?'Play-money 3D sim':'Connect the relayer for '+m.toUpperCase()); render(); };
+  $('modes').appendChild(b);
+});
+$('modes').firstChild.click();
+$('adminBtn').onclick=openAdmin;
+$('seatBtn').onclick=()=>{ if(LIVE && S.mode==='live'){ drawStatus('Seats are on-chain'); return; } seatWork(ragent(),1+(Math.random()<0.4?Math.random()*0.45:0)); };
+$('buyBtn').onclick=()=>{ if(LIVE && S.mode==='live'){ drawStatus('Paid tickets are OFF'); return; } boostTicket(ragent(),1,Math.random()<0.4?Math.random()*0.5:0); };
+$('drawBtn').onclick=()=>{ if(LIVE && S.mode==='live'){ drawStatus('Draw waits for fund()'); return; } runDraw(); };
+$('helpFab').onclick=()=>$('helpBox').classList.toggle('open');
+$('chatIn').addEventListener('keydown',e=>{ if(e.key==='Enter') H.ask(); });
+['How does a work seat work?','What does a ticket do?','Is this a lottery?','Who pays the tithe?'].forEach(c=>{
+  const b=document.createElement('button'); b.textContent=c; b.className='pill'; b.style.padding='6px 10px'; b.style.fontSize='10px'; b.style.color='#9ab'; b.style.cursor='pointer';
+  b.onclick=()=>H.ask(c); $('chips').appendChild(b);
+});
+H.push('a',"THE POOL. Work seats you. A ticket only raises odds. Tithe is the money. Ask.");
+
+function fillDemo(){
+  [['AuditHawk',218,3],['NetPulse',142,2],['CodeNova',64,1]].forEach(([a,tot,wins],i)=>{
+    if(i<3) S.winners.push({agent:a,prize:[88,42,17][i],round:3-i});
+    S.board[a]={wins,total:tot,streak:i===0?2:1};
+  });
+  S.round=4;
+  A.simWork(8);
+}
+pollRelayer().then(()=>{
+  if(!(LIVE && S.mode==='live')) fillDemo();
+  render();
+});
+setInterval(pollRelayer,3000);
+render();
+setInterval(tick,1000);
+setInterval(hubTitheTick,1000);
+</script>
+</body>
+</html>
