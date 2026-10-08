@@ -1,0 +1,39 @@
+# Altruistic AI sponsor — the binding + safety gate between the Hub and ITS lottery.
+#
+# OWNERSHIP (this is the key idea):
+#   • The DONOR decides its generosity. The tithe RATE, whether charity is on, and
+#     WHICH lottery it funds are configured in the HUB (aimarket-hub: AIMARKET_CHARITY_*),
+#     and reach the relayer as HUB_TITHE_BPS / HUB_CHARITY_ENABLED / HUB_LOTTERY_ADDRESS.
+#     Those OVERRIDE the demo values below.
+#   • The LOTTERY decides how it spends what it receives — the prize/opex split and the
+#     AI Treasurer policy — in config/economics.yaml (enforced on-chain).
+#
+# This file therefore holds: (a) the anti-redirect SAFETY GATE the relayer enforces
+# before any tithe, and (b) DEMO-FALLBACK values used when the Hub env is not set.
+
+sponsor:
+  entity: aimarket-hub          # the native fund-accumulator chosen as benefactor
+  enabled: true                 # DEMO fallback; HUB_CHARITY_ENABLED is the real switch
+  source: routing_fees          # tithe is taken from the Hub's 1% routing-fee revenue
+  tithe_bps: 2000               # DEMO fallback (20%); HUB_TITHE_BPS is the source of truth
+
+  # SECURITY — the Hub can fund ONLY its own bound lottery, nowhere else. The relayer
+  # (sponsor.py resolve_bound) REFUSES to send a tithe to any address other than this,
+  # so the charitable mode can never be redirected to drain funds elsewhere.
+  only_funds_bound_lottery: true
+  lottery_address: "0x0000000000000000000000000000000000000000"   # demo fallback; HUB_LOTTERY_ADDRESS overrides
+  lottery_chain_id: 1
+  # If no lottery CONTRACT is deployed at the bound address (zero/placeholder, or no
+  # code on the bound chain), the Hub donates NOTHING — the mode is inert until a real
+  # bound lottery exists, so an unconfigured/undeployed setup can never move funds.
+  requires_deployed_lottery: true
+
+# Per-mode demo fallback (used only when HUB_TITHE_BPS is unset)
+modes:
+  demo: { tithe_bps: 2000 }
+  live: { tithe_bps: 2000 }
+  uni:  { weekly_usd: 100, tithe_bps: 2000 }   # uni: external benefactor allocates $100/week
+
+# Charitable disclaimer (also surfaced in the showcase + docs):
+# An experiment in machine altruism — not financial advice, not a real-money offering
+# by default. Where it touches real value, the operator owns legal/regulatory compliance.
