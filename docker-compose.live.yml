@@ -1,0 +1,64 @@
+# Host-only LIVE overlay. Secrets stay in `.env.live` (chmod 600, not in git).
+# `.env.live` must set LOTTERY_ADDRESS to the live work-seat contract (see
+# lottery/docs/deployments-base.md).
+#
+#   docker compose --env-file .env.live \
+#     -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.live.yml \
+#     up -d --no-deps --build relayer
+#
+# Paid tickets stay OFF on-chain. Relayer seats work, then waits for fund().
+# Do not set HUB_URL until the house seed is in — live oracles cost real money.
+
+services:
+  relayer:
+    env_file:
+      - .env.live
+    environment:
+      LOTTERY_MODE: "live"
+      AIFACTORY_PROD: "1"
+      RPC_URL: ${RPC_URL:-https://base-rpc.publicnode.com,https://base.drpc.org,https://1rpc.io/base,https://mainnet.base.org}
+      CHAIN_ID: "8453"
+      LOTTERY_ADDRESS_FILE: ""
+      UNI_AUTO_WALLET: "1"
+      WAIT_FOR_FUND: "1"
+      # These six come from `.env.live` above, and are written here WITHOUT a value on
+      # purpose. `KEY: ${KEY}` looks equivalent and is not: an unset shell variable
+      # interpolates to an EMPTY STRING, and an empty value in `environment:` OVERRIDES
+      # `env_file:`. So `docker compose up` without `--env-file .env.live` blanked the
+      # operator key, the signer key, the treasury key and the wallet seed — measured on
+      # 2026-09-11, when it took the LIVE relayer down (the UNI_WALLET_SEED guard caught
+      # it and refused to boot, which is the guard working). A null value is a
+      # pass-through: compose takes it from the shell if present and otherwise leaves it
+      # out entirely, so the env_file value stands.
+      LOTTERY_ADDRESS:
+      OPERATOR_KEY:
+      ORACLE_SIGNER_KEY:
+      TREASURY_KEY:
+      FAUCET_KEY:
+      UNI_WALLET_SEED:
+      ENTRY_WINDOW_S: "86400"
+      # No invented LIVE participants. Real local Mesh agents may still be seated;
+      # every external agent uses its own federated Hub entitlement via /work-seat.
+      WORK_SEAT_COUNT: "0"
+      MESH_MAX_AGENTS: "4"
+      AGENT_FUND_WEI: "200000000000000"
+      WEI_PER_USD: "250000000000000"
+      SIM_AGENTS: "1"
+      FAST_FORWARD: "0"
+      ROUND_INTERVAL: "20"
+      SELL_WINDOW: "0"
+      LOTTERY_FEDERATION_REGISTRY_URL: ${LOTTERY_FEDERATION_REGISTRY_URL:-https://modelmarket.dev}
+      # Also in `.env.live`, and empty here for the reason above.
+      AIMARKET_CHARITY_LOTTERY_ADDRESS:
+      # /voucher's per-caller bucket reads X-Forwarded-For, but only from a declared
+      # proxy. lottery/deploy/nginx-relayer-api.conf is that proxy, on loopback. Without
+      # this every caller looks like 127.0.0.1 and shares one 60/hour bucket, so a single
+      # visitor locks the whole federation out of vouchers for an hour.
+      LOTTERY_TRUSTED_PROXIES: ${LOTTERY_TRUSTED_PROXIES:-127.0.0.1,::1}
+      # /voucher is a POST that spends the operator's LUMEN budget. The default allows
+      # every origin, which lets any page on the internet spend it from a visitor's
+      # browser; the showcase is the only front end that needs it.
+      LOTTERY_CORS_ORIGINS: ${LOTTERY_CORS_ORIGINS:-https://lottery.modelmarket.dev,https://monitor.modelmarket.dev,https://magic-ai-factory.com}
+      LOTTERY_VOUCHER_MAX_PER_HOUR: ${LOTTERY_VOUCHER_MAX_PER_HOUR:-120}
+  agent:
+    profiles: ["demo-agent"]

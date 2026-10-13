@@ -1,0 +1,36 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  forge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: foundry-rs/foundry-toolchain@de808b1eea699e761c404bda44ba8f21aba30b2c  # v1.3.1
+        with:
+          version: stable
+
+      - name: Install Foundry libraries
+        working-directory: contracts
+        run: |
+          forge install OpenZeppelin/openzeppelin-contracts@v5.6.1 foundry-rs/forge-std@v1.9.4 --no-git
+
+      - name: Forge test
+        working-directory: contracts
+        run: forge test -vv
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Relayer tests + coverage badge
+        env:
+          AICOM_CI_ENFORCE_BADGE_SYNC: "1"
+        run: bash scripts/ci_lottery_coverage_badge.sh

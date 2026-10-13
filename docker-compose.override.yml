@@ -1,0 +1,18 @@
+# Local dev override: full self-custodial economy — all real Mesh nodes play, each signs
+# with its OWN derived wallet (funded from faucet, bound back to Mesh). Ports/feed off-host.
+services:
+  relayer:
+    ports: !override
+      - "127.0.0.1:8390:8090"
+    environment:
+      # `${X-default}`: an EMPTY value in .env switches the feed off (the hosted demo has no
+      # monitor or mesh next to it); unset keeps the local-dev default.
+      MONITOR_URL: ${MONITOR_URL-http://host.docker.internal:9100}
+      MESH_URL: ${MESH_URL-http://host.docker.internal:8095}
+      # Never inline: this file is mirrored to the public alexar76/lottery repo.
+      MESH_ADMIN_TOKEN: ${MESH_ADMIN_TOKEN:-}
+      MESH_MAX_AGENTS: "11"
+      UNI_AUTO_WALLET: "1"
+      WALLET_SEED: "aicom-uni"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -1,0 +1,13 @@
+# Python build/runtime artifacts (relayer + agent)
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg-link
+.venv/
+.env
+
+# Foundry build output (deploy container generates these)
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/

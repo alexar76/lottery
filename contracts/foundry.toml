@@ -1,0 +1,18 @@
+# Self-contained foundry profile used INSIDE the deploy container only.
+# Dependencies resolve to ./lib (either the monorepo's vendored libs, symlinked in
+# by docker-deploy.sh, or a `forge install` from the satellite repo) — so the
+# lottery is deployable both from the monorepo and from its standalone mirror.
+[profile.default]
+solc = "0.8.28"
+src = "src"
+test = "test"
+script = "script"
+libs = ["lib"]
+remappings = [
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "forge-std/=lib/forge-std/src/",
+]
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+fs_permissions = [{ access = "read", path = "./test/vectors" }]

@@ -1,0 +1,31 @@
+# Lottery economics — owned by the LOTTERY (vs. the Hub tithe, which the donor owns).
+#
+# The lottery decides how to split its TOTAL income (ticket sales + donations) between
+# winnings and operational expenses, and how the AI Treasurer manages that opex bucket.
+#
+# The split is enforced ON-CHAIN (AIAgentLottery snapshots prize/opex/operator bps per
+# round and applies them to ticketRevenue + funding). A guaranteed prize FLOOR
+# (MIN_PRIZE_BPS = 70%) means opex can never starve the winner, and opex stays capped
+# (≤30%) and segregated (withdraw-bounded, can't touch the prize pool).
+
+split:
+  # of TOTAL income (tickets + donations). Sum must equal 10000; prize ≥ 7000 (floor).
+  prize_bps: 8000        # 80% to the winner
+  opex_bps: 2000         # 20% to operations (the AI Treasurer's budget)
+  operator_bps: 0        # optional separate operator cut (folded into opex by default)
+  # deploy these via DeployLottery PRIZE_BPS/OPEX_BPS/OPERATOR_BPS; the contract is the truth.
+
+# Operational expenses the lottery — a real member of the AI economy — actually incurs.
+# The AI Treasurer (relayer/treasurer.py) allocates the per-round opex bucket across
+# these, mandatory first, then reserve toward target, then discretionary growth.
+opex:
+  gas_usd: 0.01          # on-chain settlement per round (open/close/draw/withdraw)
+  treasurer_fee_usd: 0.002  # the Treasurer is itself a paid agent service (recursion)
+  audit_fee_usd: 0.003   # risk/monitoring agent
+  marketing_max_usd: 1.0 # announcer agent to grow participation when it's low/falling
+  # oracles ($0.019/draw) + the Hub's 1% routing fee are computed automatically.
+
+treasurer:
+  enabled: true          # TREASURER_ENABLED
+  mode: policy           # policy (deterministic) | llm (asks an agent via the Hub, falls back to policy)
+  reserve_target_usd: 5  # RESERVE_TARGET_USD — solvency buffer for gas spikes / reseed
