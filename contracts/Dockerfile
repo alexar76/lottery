@@ -1,6 +1,6 @@
 # AI-Agent Oracle Lottery — anvil chain + one-shot contract deploy.
 # Same image serves both compose services:
-#   chain  → `entrypoint: anvil` (local EVM)
+#   chain  → entrypoint anvil-entrypoint.sh (reaps anvil-state-* dumps, then execs anvil)
 #   deploy → default entrypoint runs docker-deploy.sh (forge script → /shared)
 FROM ghcr.io/foundry-rs/foundry:v1.3.1
 
@@ -14,8 +14,8 @@ COPY src ./src
 COPY script ./script
 COPY test ./test
 COPY foundry.docker.toml ./foundry.toml
-COPY docker-deploy.sh ./docker-deploy.sh
-RUN chmod +x docker-deploy.sh
+COPY docker-deploy.sh anvil-dump-reaper.sh anvil-entrypoint.sh ./
+RUN chmod +x docker-deploy.sh anvil-dump-reaper.sh anvil-entrypoint.sh
 
 # Dependencies (OZ 5.6.1 + forge-std) are resolved at RUN time by docker-deploy.sh
 # so it can prefer the monorepo's vendored libs when they are mounted.

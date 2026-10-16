@@ -11,3 +11,6 @@ contracts/out/
 contracts/cache/
 contracts/broadcast/
 contracts/lib/
+
+# One-shot anvil snapshot used when recreating the chain container.
+anvil-restore/

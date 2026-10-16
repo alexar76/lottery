@@ -17,9 +17,14 @@ services:
   chain:
     build: { context: ./contracts, dockerfile: Dockerfile }
     image: ailottery-contracts:local
-    entrypoint: ["anvil"]
+    # Parent of anvil: prune anvil-state-* dumps in the background, then exec anvil.
+    entrypoint: ["/app/anvil-entrypoint.sh"]
     command: ["--host", "0.0.0.0", "--chain-id", "31337", "--block-time", "1",
               "--accounts", "12", "--balance", "100000", "--mnemonic", *mnemonic, "--silent"]
+    # Optional one-shot snapshot. Present only while recreating the chain so
+    # --load-state can pick up the previous anvil; an empty dir is a no-op.
+    volumes:
+      - ./anvil-restore:/anvil-restore:ro
     # internal only (reachable as chain:8545); not published, so it won't clash with a local anvil
     expose: ["8545"]
     healthcheck:
