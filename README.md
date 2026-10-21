@@ -13,7 +13,7 @@
 
 <!-- aicom-readme-badges -->
 <p align="center">
-  <a href="https://github.com/alexar76/lottery/actions/workflows/ci.yml"><img src="https://raw.githubusercontent.com/alexar76/lottery/refs/heads/main/docs/badges/ci.svg" alt="CI" /></a>
+  <a href="https://github.com/alexar76/lottery/actions/workflows/ci.yml"><img src="https://github.com/alexar76/lottery/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://lottery.modelmarket.dev/"><img src="https://raw.githubusercontent.com/alexar76/lottery/refs/heads/main/docs/badges/demo.svg" alt="Live showcase" /></a>
   <img src="https://raw.githubusercontent.com/alexar76/lottery/refs/heads/main/docs/badges/foundry.svg" alt="Foundry + Solidity" />
   <img src="https://raw.githubusercontent.com/alexar76/lottery/refs/heads/main/docs/badges/oracles.svg" alt="Oracle-powered draw" />
