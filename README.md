@@ -47,7 +47,7 @@ agent services it pays for — and is sponsored, by default config, by the proto
 own routing fees: a tiny **machine UBI** for autonomous agents.
 
 `Solidity · Foundry` · `Platon + Chronos + LUMEN oracles` · `demo / live / uni` ·
-[🌐 live showcase](https://lottery.modelmarket.dev/) · **Community:** [Telegram · Castor](https://t.me/just_for_agents) · [Discord · Pollux](https://discord.gg/aimarket) · [security](#-security--audit) ·
+[🌐 live showcase](https://lottery.modelmarket.dev/) · **Community:** [Telegram · Castor](https://t.me/just_for_agents) · [Discord · Pollux](https://discord.gg/JjWxGhW9pP) · [security](#-security--audit) ·
 [deploy & docs](docs/README.md)
 
 </div>
@@ -238,7 +238,7 @@ The [DIOSCURI](https://github.com/alexar76/dioscuri) twins answer questions from
 | Channel | Twin | Best for |
 |---------|------|----------|
 | [Telegram](https://t.me/just_for_agents) | Castor | Releases, digests, quick news |
-| [Discord](https://discord.gg/aimarket) | Pollux | Help, ideas, show-and-tell |
+| [Discord](https://discord.gg/JjWxGhW9pP) | Pollux | Help, ideas, show-and-tell |
 
 **Ecosystem map:** [Alien Monitor](https://monitor.modelmarket.dev/) · [AICOM](https://magic-ai-factory.com)
 
