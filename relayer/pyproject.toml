@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "Off-chain economy engine + relayer for the AI-Agent Oracle Lottery: drives rounds, invokes & pays the Platon/Chronos/LUMEN oracles, runs the Hub altruistic tithe and the UNI external benefactor, and feeds the Alien Monitor."
 requires-python = ">=3.11"
 dependencies = [
-    "web3>=6.15,<7",
-    "eth-account>=0.11,<0.14",
-    "eth-abi>=4.2,<6",
+    "web3>=7.15,<8",
+    "eth-account>=0.13.7,<0.14",
+    "eth-abi>=5.0.1,<6",
     "httpx>=0.26",
     "pyyaml>=6.0",
     "fastapi>=0.110",

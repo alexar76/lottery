@@ -116,7 +116,7 @@ services:
     restart: unless-stopped
 
   showcase:
-    image: node:20-alpine
+    image: node:22.23.4-alpine
     working_dir: /app
     command: ["node", "serve.mjs"]
     environment:
