@@ -17,6 +17,7 @@ from pathlib import Path
 import httpx
 from eth_account import Account
 from web3 import Web3
+from .dev_key_safety import require_signing_chain
 
 ABI = [
     {"type": "function", "name": "currentRoundId", "stateMutability": "view", "inputs": [],
@@ -83,17 +84,23 @@ def main() -> None:
     hub_agent_id = os.getenv("HUB_AGENT_ID", "").strip()
     hub_agent_token = os.getenv("HUB_AGENT_TOKEN", "").strip()
 
-    w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 30}))
+    w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 30, "allow_redirects": False}))
+    require_signing_chain(w3, chain_id, [rpc], key)
     acct = Account.from_key(key)
     lottery = w3.eth.contract(address=Web3.to_checksum_address(_addr()), abi=ABI)
     print(f"agent {acct.address} on {lottery.address} (relayer={relayer or 'none'})", flush=True)
 
     def send(fn, value=0):
+        require_signing_chain(w3, chain_id, [rpc], key)
         tx = fn.build_transaction({
             "from": acct.address, "nonce": w3.eth.get_transaction_count(acct.address, "pending"),
             "value": value, "chainId": chain_id, "gas": 1_500_000, "gasPrice": w3.eth.gas_price})
+        if int(tx.get("chainId", -1)) != chain_id:
+            raise RuntimeError("Transaction builder changed the configured signing chain ID")
+        require_signing_chain(w3, chain_id, [rpc], key)
         signed = acct.sign_transaction(tx)
         raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
+        require_signing_chain(w3, chain_id, [rpc], key)
         h = w3.eth.send_raw_transaction(raw)
         return w3.eth.wait_for_transaction_receipt(h, timeout=120)
 

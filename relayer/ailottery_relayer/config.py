@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+from .dev_key_safety import DEV_CHAIN_ID, is_public_dev_key, local_dev_rpc
 
 REPO_SPONSOR_YAML = Path(__file__).resolve().parents[2] / "config" / "sponsor.yaml"
 REPO_ECONOMICS_YAML = Path(__file__).resolve().parents[2] / "config" / "economics.yaml"
@@ -155,6 +156,18 @@ def _guard_wallet_seed(c: "Config") -> None:
             "UNI_WALLET_SEED resolves to a well-known PUBLIC dev key; agent wallets would be "
             "trivially sweepable. Use a secret seed for production."
         )
+
+
+def _guard_public_dev_keys(c: "Config") -> None:
+    local_dev = c.chain_id == DEV_CHAIN_ID and all(local_dev_rpc(url) for url in c.rpc_urls)
+    keys = [c.operator_key, c.oracle_signer_key, c.treasury_key, c.sponsor_key,
+            c.benefactor_key, c.faucet_key, *c.agent_keys]
+    if not local_dev and any(is_public_dev_key(key) for key in keys if key):
+        raise RuntimeError("Public test or compromised wallet keys are restricted to a verified local development chain")
+    if not local_dev and c.uni_auto_wallet and (
+        c.uni_wallet_seed.strip().lower() in _PUBLIC_DEV_SEEDS or is_public_dev_key(c.uni_wallet_seed)
+    ):
+        raise RuntimeError("A public wallet seed cannot derive agent wallets for a non-development chain")
 
 
 @dataclass
@@ -317,6 +330,7 @@ class Config:
         c.economics = _load_yaml(os.getenv("ECONOMICS_YAML", str(REPO_ECONOMICS_YAML)))
 
         c.sponsor = _load_yaml(os.getenv("SPONSOR_YAML", str(REPO_SPONSOR_YAML)))
+        _guard_public_dev_keys(c)
         _guard_wallet_seed(c)
         return c
 

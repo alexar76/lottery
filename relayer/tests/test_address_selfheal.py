@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+import pytest
 
 from ailottery_relayer.config import Config, read_address_source
 from ailottery_relayer.economy import EconomyEngine
@@ -18,6 +19,21 @@ from ailottery_relayer.economy import EconomyEngine
 LIVE = "0xdc64a140aa3e981100a9beca4e685f962f0cf6c9"
 DEAD = "0x7635385340f52ee0f81b11c59ff10773818b94ff"
 OTHER = "0xa513e6e4b8f2a923d98304ec87f64353c4d5c853"
+
+
+@pytest.fixture(autouse=True)
+def verified_rpc_for_rebind(monkeypatch):
+    # Rebinding now verifies the RPC identity at construction. Keep this suite
+    # entirely offline while giving its replacement Chain a real chain-id field.
+    from ailottery_relayer import chain
+
+    def connect(urls):
+        return SimpleNamespace(
+            eth=SimpleNamespace(chain_id=31337, contract=lambda **kwargs: SimpleNamespace(functions=SimpleNamespace())),
+            provider=SimpleNamespace(endpoint_uri=urls[0]),
+        )
+
+    monkeypatch.setattr(chain, "connect_web3", connect)
 
 
 # ── reading whatever shape the deploy step wrote ──────────────────────────────────────

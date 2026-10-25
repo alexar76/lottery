@@ -31,6 +31,7 @@ _ABI_MISMATCH = (
 
 from .log import get_logger
 from .rpc import connect_web3, parse_rpc_urls
+from .dev_key_safety import actual_chain_id, require_signing_chain
 
 log = get_logger("chain")
 
@@ -43,12 +44,18 @@ class Chain:
         self.rpc_urls = urls
         self.w3 = connect_web3(urls)
         self.chain_id = chain_id
+        actual_chain_id(self.w3, self.chain_id)
+        self.w3.provider.expected_chain_id = self.chain_id
         self.address = Web3.to_checksum_address(lottery_address)
         self.contract = self.w3.eth.contract(address=self.address, abi=LOTTERY_ABI)
 
     # ── identities ────────────────────────────────────────────────────────────
     def acct(self, private_key: str):
+        self._guard_key(private_key)
         return Account.from_key(private_key)
+
+    def _guard_key(self, private_key) -> None:
+        require_signing_chain(self.w3, self.chain_id, self.rpc_urls, private_key)
 
     # ── reads ───────────────────────────────────────────────────────────────
     def current_round_id(self) -> int:
@@ -217,6 +224,7 @@ class Chain:
     # ── writes ────────────────────────────────────────────────────────────────
     def transfer(self, from_key: str, to: str, amount_wei: int) -> dict:
         """Plain ETH transfer — used in UNI to fund each agent's self-custodial wallet."""
+        self._guard_key(from_key)
         acct = Account.from_key(from_key)
         tx = {
             "from": acct.address,
@@ -227,6 +235,7 @@ class Chain:
             "gas": 21_000,
             "gasPrice": self.w3.eth.gas_price,
         }
+        self._guard_key(from_key)
         signed = acct.sign_transaction(tx)
         raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
         tx_hash = self.w3.eth.send_raw_transaction(raw)
@@ -236,6 +245,7 @@ class Chain:
         return dict(rcpt)
 
     def send(self, fn, private_key: str, value: int = 0, gas: Optional[int] = None) -> dict:
+        self._guard_key(private_key)
         acct = Account.from_key(private_key)
         tx = fn.build_transaction({
             "from": acct.address,
@@ -246,6 +256,9 @@ class Chain:
             # legacy gas price keeps anvil + most testnets happy without EIP-1559 estimation
             "gasPrice": self.w3.eth.gas_price,
         })
+        if int(tx.get("chainId", -1)) != self.chain_id:
+            raise RuntimeError("Transaction builder changed the configured signing chain ID")
+        self._guard_key(private_key)
         signed = acct.sign_transaction(tx)
         raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
         tx_hash = self.w3.eth.send_raw_transaction(raw)
@@ -265,6 +278,7 @@ class Chain:
 
     def sign_beacon(self, private_key: str, round_id: int, platon_random: bytes,
                     vdf_t: int, proof_hash: bytes) -> bytes:
+        self._guard_key(private_key)
         typed = {
             "types": {
                 "EIP712Domain": [
@@ -289,6 +303,7 @@ class Chain:
 
     def sign_voucher(self, private_key: str, agent: str, round_id: int,
                      rep_bonus_bps: int, expiry: int) -> bytes:
+        self._guard_key(private_key)
         typed = {
             "types": {
                 "EIP712Domain": [
@@ -313,6 +328,7 @@ class Chain:
 
     def sign_work_seat(self, private_key: str, agent: str, participant_id: str, round_id: int,
                        weight_bps: int, expiry: int) -> bytes:
+        self._guard_key(private_key)
         typed = {
             "types": {
                 "EIP712Domain": [

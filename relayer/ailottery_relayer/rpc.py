@@ -112,6 +112,26 @@ def _session() -> Session:
     return s
 
 
+def _raw_chain_id(raw) -> int:
+    """Decode the signed EIP-155 domain before a failover endpoint sees bytes."""
+    from eth_account._utils.legacy_transactions import Transaction
+    from eth_account.typed_transactions import TypedTransaction
+    from hexbytes import HexBytes
+
+    try:
+        encoded = HexBytes(raw)
+        if not encoded:
+            raise ValueError("empty transaction")
+        if encoded[0] < 0x80:
+            return int(TypedTransaction.from_bytes(encoded).as_dict()["chainId"])
+        v = int(Transaction.from_bytes(encoded).v)
+        if v < 35:
+            raise ValueError("transaction has no EIP-155 replay protection")
+        return (v - 35) // 2
+    except Exception:
+        raise RuntimeError("Invalid or unprotected signed transaction; broadcast refused") from None
+
+
 class FailoverHTTPProvider(HTTPProvider):
     """Rotate across RPC_URL list when an endpoint 429s or drops."""
 
@@ -120,6 +140,7 @@ class FailoverHTTPProvider(HTTPProvider):
         if not self._urls:
             raise ValueError("no RPC URLs")
         self._i = 0
+        self.expected_chain_id: int | None = None
         super().__init__(
             self._urls[0],
             request_kwargs=request_kwargs or {"timeout": 30},
@@ -130,13 +151,21 @@ class FailoverHTTPProvider(HTTPProvider):
         self._i = (self._i + 1) % len(self._urls)
         nxt = self._urls[self._i]
         self.endpoint_uri = nxt
-        log.warning("RPC failover → %s", nxt.split("?")[0])
+        log.warning("RPC failover → endpoint %d of %d", self._i + 1, len(self._urls))
 
     def make_request(self, method, params):
         last: Optional[BaseException] = None
         attempts = max(3, len(self._urls) * 2)
         for _ in range(attempts):
             try:
+                if method in {"eth_sendRawTransaction", "eth_sendTransaction"} and self.expected_chain_id is not None:
+                    if method == "eth_sendRawTransaction" and _raw_chain_id(params[0]) != self.expected_chain_id:
+                        raise RuntimeError("Signed transaction belongs to a different chain; broadcast refused")
+                    response = super().make_request("eth_chainId", [])
+                    raw = response.get("result")
+                    actual = int(raw, 16) if isinstance(raw, str) else int(raw)
+                    if actual != self.expected_chain_id:
+                        raise RuntimeError("RPC failover endpoint has the wrong chain ID; transaction refused")
                 return super().make_request(method, params)
             except Exception as exc:
                 last = exc
@@ -147,4 +176,4 @@ class FailoverHTTPProvider(HTTPProvider):
 
 
 def connect_web3(urls: Iterable[str], timeout: int = 30) -> Web3:
-    return Web3(FailoverHTTPProvider(list(urls), request_kwargs={"timeout": timeout}))
+    return Web3(FailoverHTTPProvider(list(urls), request_kwargs={"timeout": timeout, "allow_redirects": False}))
