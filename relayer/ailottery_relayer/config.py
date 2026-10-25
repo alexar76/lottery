@@ -10,6 +10,7 @@ UNI   — the self-evolving universe: like demo/live plus an unknown external
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,6 +20,17 @@ import yaml
 
 REPO_SPONSOR_YAML = Path(__file__).resolve().parents[2] / "config" / "sponsor.yaml"
 REPO_ECONOMICS_YAML = Path(__file__).resolve().parents[2] / "config" / "economics.yaml"
+
+# Do not send the historical public Lottery/Mesh admin token to another service.
+COMPROMISED_MESH_TOKEN_SHA256 = frozenset({
+    "5b023816d239f5431323c6eef7d07d3ba3af7c0f9a77a6009821b0d321f7378c",
+})
+
+
+def _guard_mesh_admin_token(value: str) -> None:
+    if hashlib.sha256(value.strip().encode("utf-8")).hexdigest() in COMPROMISED_MESH_TOKEN_SHA256:
+        raise ValueError("MESH_ADMIN_TOKEN was publicly exposed; configure a replacement")
+
 
 # Well-known PUBLIC dev keys (the standard "test test ... junk" Anvil/Hardhat mnemonic) and the
 # literal default seed. Deriving per-agent wallets from any of these makes the wallets trivially
@@ -252,6 +264,7 @@ class Config:
 
         c.mesh_url = os.getenv("MESH_URL", c.mesh_url).rstrip("/")
         c.mesh_admin_token = os.getenv("MESH_ADMIN_TOKEN", c.mesh_admin_token)
+        _guard_mesh_admin_token(c.mesh_admin_token)
         c.mesh_max_agents = _i("MESH_MAX_AGENTS", c.mesh_max_agents)
         c.uni_auto_wallet = _b("UNI_AUTO_WALLET", c.mode in ("uni", "live"))
         # deterministic per-agent keys: seed defaults to the operator key (UNI-local secret)
