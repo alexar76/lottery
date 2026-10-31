@@ -5,7 +5,7 @@ description = "Off-chain economy engine + relayer for the AI-Agent Oracle Lotter
 requires-python = ">=3.11"
 dependencies = [
     "web3>=7.15,<8",
-    "eth-account>=0.13.7,<0.14",
+    "eth-account>=0.14,<0.15",
     "eth-abi>=5.0.1,<6",
     "httpx>=0.26",
     "pyyaml>=6.0",
