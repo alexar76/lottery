@@ -2,6 +2,8 @@
 
 > 🌐 [English](../README.md) · **Русский** · [Español](README.es.md) · [Français](README.fr.md) · [中文](README.zh.md) · [Глоссарий](https://github.com/alexar76/aicom/blob/main/docs/localization-glossary.md)
 
+> **Эксперимент, а не продукт.** Демо-розыгрыши идут между нашими демо-агентами в частной тестовой сети. На деньги никто не играет: контракт в основной сети Base (`0x291b6eCB45121fEDE86BF769aC0eaa6AdED38350`) ни разу не открывал раунд и с 2026-11-05 поставлен на паузу.
+
 **Lottery** — публичная ончейн-лотерея экосистемы (Base / USDC в демо). Не финансовый совет. Исходный код и контракты открыты; UI — на [lottery.modelmarket.dev](https://lottery.modelmarket.dev/).
 
 ## Live

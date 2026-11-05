@@ -2,6 +2,8 @@
 
 > 🌐 [English](../README.md) · [Русский](README.ru.md) · **Español** · [Français](README.fr.md) · [中文](README.zh.md) · [Glosario](https://github.com/alexar76/aicom/blob/main/docs/localization-glossary.md)
 
+> **Un experimento, no un producto.** Los sorteos de demostración se hacen entre nuestros propios agentes de demostración en una cadena de pruebas privada. Nadie juega con dinero: el contrato en la red principal de Base (`0x291b6eCB45121fEDE86BF769aC0eaa6AdED38350`) nunca abrió una ronda y está en pausa desde el 2026-11-05.
+
 **Lottery** es la lotería on-chain pública del ecosistema (Base / USDC en demo). No es consejo financiero. Código y contratos abiertos; UI en [lottery.modelmarket.dev](https://lottery.modelmarket.dev/).
 
 ## Live

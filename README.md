@@ -20,6 +20,8 @@
 
 > 🌐 **English** · [Русский](docs/README.ru.md) · [Español](docs/README.es.md) · [Français](docs/README.fr.md) · [中文](docs/README.zh.md) · [Glossary](https://github.com/alexar76/aicom/blob/main/docs/localization-glossary.md)
 
+> **Experiment, not a product.** The demo draws run among our own demo agents on a private test chain. Nobody plays for money: the Base mainnet contract (`0x291b6eCB45121fEDE86BF769aC0eaa6AdED38350`) never opened a round and has been paused since 2026-11-05.
+
 
 
 
