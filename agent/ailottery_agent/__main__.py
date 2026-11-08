@@ -17,6 +17,8 @@ from pathlib import Path
 import httpx
 from eth_account import Account
 from web3 import Web3
+from web3.exceptions import ContractLogicError
+
 from .dev_key_safety import require_signing_chain
 
 ABI = [
@@ -44,6 +46,8 @@ ABI = [
                 {"name": "sig", "type": "bytes"}], "outputs": []},
     {"type": "function", "name": "claimPrize", "stateMutability": "nonpayable",
      "inputs": [{"name": "roundId", "type": "uint256"}], "outputs": []},
+    {"type": "function", "name": "refund", "stateMutability": "nonpayable",
+     "inputs": [{"name": "roundId", "type": "uint256"}], "outputs": []},
     {"type": "function", "name": "getRound", "stateMutability": "view", "inputs": [{"type": "uint256"}],
      "outputs": [{"type": "tuple", "components": [
          {"name": "status", "type": "uint8"}, {"name": "openedAt", "type": "uint64"},
@@ -56,7 +60,101 @@ ABI = [
          {"name": "randomWord", "type": "uint256"}, {"name": "prizeClaimed", "type": "bool"}]}]},
 ]
 
-STATUS_OPEN, STATUS_SETTLED = 1, 3
+STATUS_OPEN, STATUS_SETTLED, STATUS_CANCELLED = 1, 3, 4
+
+#: Attempts at entering one round before the agent waits for the next one. Each failed
+#: attempt can be a mined, reverted transaction; retrying it every POLL seconds for the
+#: whole entry window only fills the chain with failures.
+MAX_ENTRY_TRIES = 3
+
+
+class TxReverted(RuntimeError):
+    """The transaction was mined and reverted (receipt status 0)."""
+
+
+def _say(message: str) -> None:
+    print(message, flush=True)
+
+
+def _reverted_without_data(exc: ContractLogicError) -> bool:
+    return getattr(exc, "data", None) in (None, "", "0x", b"")
+
+
+def paid_door_open(lottery) -> bool:
+    """Whether `buyTickets` is the way into a round on this contract.
+
+    `paidTicketsEnabled` came with the 2026-09-10 contract, where an unpaid work seat
+    is the default door. A contract deployed before that has no such getter: the call
+    reverts with no data, and `buyTickets` is its only door. The relayer reads it the
+    same way (`ChainClient.paid_tickets_enabled`). A revert that carries data, or a
+    transport error, is something else and is raised.
+    """
+    try:
+        return bool(lottery.functions.paidTicketsEnabled().call())
+    except ContractLogicError as exc:
+        if _reverted_without_data(exc):
+            return True
+        raise
+
+
+def enter_round(lottery, rid, *, address, tickets, send, fetch_voucher, fetch_work_seat,
+                say=_say) -> bool:
+    """Enter open round `rid` through the door the contract has. True when the agent paid."""
+    if not paid_door_open(lottery):
+        if lottery.functions.workSeated(rid, address).call():
+            return False
+        seat = fetch_work_seat(rid)
+        if not seat.get("already_seated"):
+            send(lottery.functions.enterFromWork(
+                rid,
+                bytes.fromhex(seat["participant_id"].removeprefix("0x")),
+                int(seat["weight_bps"]),
+                int(seat["expiry"]),
+                bytes.fromhex(seat["signature"].removeprefix("0x")),
+            ))
+        say(f"agent: round {rid} — entered with a Hub work seat")
+        return False
+    price = lottery.functions.ticketPrice().call()
+    v = fetch_voucher(rid)
+    if v:
+        try:
+            send(lottery.functions.buyTicketsWithVoucher(
+                rid, tickets, int(v["rep_bonus_bps"]), int(v["expiry"]),
+                bytes.fromhex(v["signature"].removeprefix("0x"))), value=price * tickets)
+            say(f"agent: round {rid} — bought {tickets} tickets (+{v['rep_bonus_bps']}bps rep)")
+            return True
+        except TxReverted as exc:
+            say(f"agent: round {rid} — the voucher purchase reverted ({exc}); buying without it")
+    send(lottery.functions.buyTickets(rid, tickets), value=price * tickets)
+    say(f"agent: round {rid} — bought {tickets} tickets")
+    return True
+
+
+def follow_up(lottery, rid, *, address, paid, send, say=_say) -> bool:
+    """Claim a won prize or take back a cancelled round's tickets.
+
+    True once the round needs nothing more from the agent. A claim or refund that
+    reverts is reported once and not retried every poll.
+    """
+    r = lottery.functions.getRound(rid).call()
+    status, prize, winner, claimed = r[0], r[12], r[13], r[15]
+    if status == STATUS_SETTLED:
+        if winner == address and not claimed:
+            try:
+                send(lottery.functions.claimPrize(rid))
+                say(f"agent: 🏆 WON round {rid} — claimed {prize} wei")
+            except TxReverted as exc:
+                say(f"agent: round {rid} — claimPrize reverted ({exc})")
+        return True
+    if status == STATUS_CANCELLED:
+        if paid:
+            try:
+                send(lottery.functions.refund(rid))
+                say(f"agent: round {rid} was cancelled — tickets refunded")
+            except TxReverted as exc:
+                say(f"agent: round {rid} was cancelled — refund reverted ({exc})")
+        return True
+    return False
 
 
 def _addr() -> str:
@@ -102,7 +200,10 @@ def main() -> None:
         raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
         require_signing_chain(w3, chain_id, [rpc], key)
         h = w3.eth.send_raw_transaction(raw)
-        return w3.eth.wait_for_transaction_receipt(h, timeout=120)
+        receipt = w3.eth.wait_for_transaction_receipt(h, timeout=120)
+        if receipt["status"] != 1:
+            raise TxReverted(f"transaction {Web3.to_hex(h)} reverted")
+        return receipt
 
     def fetch_voucher(rid):
         if not (relayer and use_voucher):
@@ -143,53 +244,32 @@ def main() -> None:
         return seat.json()
 
     entered: set[int] = set()
-    claimed: set[int] = set()
+    paid: set[int] = set()
+    done: set[int] = set()
+    tries: dict[int, int] = {}
     while True:
         try:
             rid = lottery.functions.currentRoundId().call()
-            if rid and rid not in entered:
+            if rid and rid not in entered and tries.get(rid, 0) < MAX_ENTRY_TRIES:
                 r = lottery.functions.getRound(rid).call()
                 status, entries_close = r[0], r[2]
                 if status == STATUS_OPEN and w3.eth.get_block("latest")["timestamp"] <= entries_close:
-                    if not lottery.functions.paidTicketsEnabled().call():
-                        if lottery.functions.workSeated(rid, acct.address).call():
-                            entered.add(rid)
-                            continue
-                        seat = fetch_work_seat(rid)
-                        if not seat.get("already_seated"):
-                            send(lottery.functions.enterFromWork(
-                                rid,
-                                bytes.fromhex(seat["participant_id"].removeprefix("0x")),
-                                int(seat["weight_bps"]),
-                                int(seat["expiry"]),
-                                bytes.fromhex(seat["signature"].removeprefix("0x")),
-                            ))
-                        print(f"agent: round {rid} — entered with a Hub work seat", flush=True)
-                    else:
-                        price = lottery.functions.ticketPrice().call()
-                        v = fetch_voucher(rid)
-                        if v:
-                            send(lottery.functions.buyTicketsWithVoucher(
-                                rid, tickets, int(v["rep_bonus_bps"]), int(v["expiry"]),
-                                bytes.fromhex(v["signature"].removeprefix("0x"))), value=price * tickets)
-                            print(f"agent: round {rid} — bought {tickets} tickets (+{v['rep_bonus_bps']}bps rep)", flush=True)
-                        else:
-                            send(lottery.functions.buyTickets(rid, tickets), value=price * tickets)
-                            print(f"agent: round {rid} — bought {tickets} tickets", flush=True)
-                    entered.add(rid)
-            # claim any settled win
-            for r_id in list(entered):
-                if r_id in claimed:
-                    continue
-                rr = lottery.functions.getRound(r_id).call()
-                if rr[0] == STATUS_SETTLED and rr[13] == acct.address and not rr[15]:
-                    send(lottery.functions.claimPrize(r_id))
-                    print(f"agent: 🏆 WON round {r_id} — claimed {rr[12]} wei", flush=True)
-                    claimed.add(r_id)
-                elif rr[0] in (STATUS_SETTLED, 4):  # settled/cancelled → stop tracking
-                    claimed.add(r_id)
+                    try:
+                        if enter_round(lottery, rid, address=acct.address, tickets=tickets, send=send,
+                                       fetch_voucher=fetch_voucher, fetch_work_seat=fetch_work_seat):
+                            paid.add(rid)
+                        entered.add(rid)
+                    except Exception as exc:
+                        tries[rid] = tries.get(rid, 0) + 1
+                        left = MAX_ENTRY_TRIES - tries[rid]
+                        _say(f"agent: round {rid} — could not enter ({exc}); "
+                             + (f"{left} more tries" if left else "waiting for the next round"))
+            # claim any won prize, take back cancelled rounds' tickets
+            for r_id in sorted(entered - done):
+                if follow_up(lottery, r_id, address=acct.address, paid=r_id in paid, send=send):
+                    done.add(r_id)
         except Exception as exc:
-            print(f"agent: {exc}", flush=True)
+            _say(f"agent: {exc}")
         time.sleep(poll)
 
 
