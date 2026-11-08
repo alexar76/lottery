@@ -478,3 +478,51 @@ def test_empty_round_whose_cancel_could_not_be_evaluated_is_queued():
     assert sent == []
     assert engine.stalled_rounds == [17], \
         "sponsor funding in an uncancelled round has no other exit"
+
+
+def test_a_round_left_drawing_by_an_earlier_process_is_taken_over(monkeypatch):
+    """2026-11-08 08:15 UTC: the relayer was recreated between `closeEntries` and
+    `fulfillDraw`. Round 9993 stayed Drawing; its draw word had lived only in the old
+    process, and the new one logged "still drawing — not opening another" every 5 s
+    without ever queueing the round, so the lottery stopped for good. The loop draws a
+    round start to finish in one call, so a Drawing round at the top of a cycle is
+    always inherited: it must go to the sweep, which cancels it once the contract lets
+    go (the seed hash aged out) and the next cycle opens a fresh round."""
+    from ailottery_relayer import abi, economy
+
+    state = {"status": abi.STATUS_DRAWING, "seed": "ready"}
+    engine, sent = _production_engine({
+        "current_round_id": lambda: 9993,
+        "get_round": lambda rid: _round(status=state["status"]),
+        "participants_count": lambda rid: 5,
+        "seed_status": lambda b, head=None: state["seed"],
+        "cancel_allowed": lambda rid: state["seed"] != "ready",
+    })
+    monkeypatch.setattr(economy, "preflight_draw_window", lambda e: True)
+    engine.publish = MagicMock()
+    engine.open_round = MagicMock(return_value=9994)
+    engine.sell_tickets = engine.apply_sponsor_tithe = engine.apply_uni_benefactor = MagicMock()
+    engine.close_and_draw = MagicMock(return_value=False)
+    engine.cfg.wait_for_fund = False
+    engine.cfg.sell_window = 0
+
+    def _send(fn, key, **_):
+        sent.append((fn, key))
+        if str(fn).startswith("cancel:"):
+            state["status"] = abi.STATUS_CANCELLED
+        return {"status": 1}
+
+    engine.chain.send = _send
+
+    EconomyEngine.run_one_round(engine)            # seed still readable: cancel refused
+    assert engine.stalled_rounds == [9993], "an inherited Drawing round must be queued"
+    assert sent == [] and not engine.open_round.called
+
+    EconomyEngine.run_one_round(engine)            # queued twice? no
+    assert engine.stalled_rounds == [9993]
+
+    state["seed"] = "expired"                      # the blockhash window has passed
+    EconomyEngine.run_one_round(engine)
+    assert ("cancel:9993", "0xoperator") in sent
+    assert engine.stalled_rounds == []
+    engine.open_round.assert_called_once()

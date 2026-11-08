@@ -721,6 +721,14 @@ class EconomyEngine:
         rnd = self.chain.get_round(rid) if rid else None
         status = int(rnd["status"]) if rnd else 0
         if status == STATUS_DRAWING:
+            # This loop draws a round from close to fulfil inside ONE call, so a round
+            # still Drawing here was left by an earlier process or cycle. Its draw word
+            # lived only in that process's memory: nothing here can fulfil it. Without
+            # this the round sat Drawing for good and no round ever opened again —
+            # 2026-11-08 08:15 UTC, a relayer recreated mid-draw left round 9993 so.
+            # Queued, the sweep above cancels it (tickets and funding refundable) the
+            # moment the contract allows, i.e. once its seed hash has aged out.
+            defer_stalled(self, rid)
             log.info("round %s still drawing — not opening another", rid)
             self.publish()
             return
