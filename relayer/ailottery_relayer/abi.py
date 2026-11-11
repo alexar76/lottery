@@ -38,6 +38,9 @@ STATUS_DRAWING = 2
 STATUS_SETTLED = 3
 STATUS_CANCELLED = 4
 
+# AIAgentLottery.UNCLAIMED_PRIZE_TTL: after it, anyone may recycle an unclaimed prize.
+UNCLAIMED_PRIZE_TTL = 180 * 86_400
+
 
 def max_draw_delay(seconds_per_block: int) -> int:
     """Mirror of AIAgentLottery._maxDrawDelay — the largest draw delay the
@@ -178,6 +181,11 @@ LOTTERY_ABI = [
         [{"name": "", "type": "uint16"}], "view"),
     _fn("settledAt", [{"name": "", "type": "uint256"}],
         [{"name": "", "type": "uint64"}], "view"),
+    # What refund(roundId) pays msg.sender after a cancel: its ticket spend and its funding.
+    _fn("paidBy", [{"name": "", "type": "uint256"}, {"name": "", "type": "address"}],
+        [{"name": "", "type": "uint256"}], "view"),
+    _fn("fundedBy", [{"name": "", "type": "uint256"}, {"name": "", "type": "address"}],
+        [{"name": "", "type": "uint256"}], "view"),
     _fn("prizeRolledIn", [{"name": "", "type": "uint256"}],
         [{"name": "", "type": "uint256"}], "view"),
     _fn("unclaimedPool", [], [{"name": "", "type": "uint256"}], "view"),

@@ -13,8 +13,9 @@ import {AIAgentLottery} from "../src/AIAgentLottery.sol";
  *
  * All parameters come from env (with safe defaults → the deployer holds every
  * role for a quick testnet bring-up). For real value, set ADMIN/OPERATOR/
- * ORACLE_SIGNER/TREASURY to DISTINCT multisig/timelock addresses and set
- * ONCHAIN_VDF=true — see docs/AUDIT.md (Residual) and docs/README.md.
+ * ORACLE_SIGNER/TREASURY to DISTINCT multisig/timelock addresses. Keep ONCHAIN_VDF=false:
+ * on that path the beacon signer picks the prover-supplied VDF output and can choose the winner
+ * (audit 2026-11-11, contracts-1) — see docs/AUDIT.md (Residual) and docs/README.md.
  */
 contract DeployLottery is Script {
     function run() external returns (AIAgentLottery lottery) {

@@ -661,9 +661,9 @@ contract AIAgentLotteryTest is Test {
     function test_stall_cancel_cannot_touch_a_settled_or_open_round() public {
         uint256 id = _open();
         _buy(agentA, id, 1);
-        vm.warp(uint256(lot.getRound(id).openedAt) + lot.STALL_CANCEL_DELAY() + 1);
-        vm.expectRevert(AIAgentLottery.WrongStatus.selector);
-        lot.cancelStalledRound(id); // still Open, entries are the operator's to close
+        vm.warp(uint256(lot.getRound(id).entriesClose) + lot.STALL_CANCEL_DELAY() - 1);
+        vm.expectRevert(AIAgentLottery.TooEarly.selector);
+        lot.cancelStalledRound(id); // still Open and within the delay: the operator's to close
 
         _draw(id, keccak256("s"));
         vm.warp(uint256(lot.settledAt(id)) + lot.STALL_CANCEL_DELAY() + 1);
@@ -864,7 +864,14 @@ contract AIAgentLotteryTest is Test {
         assertTrue(fresh.participantSeated(id, participantId));
         assertEq(fresh.participantsCount(id), 1);
         assertEq(fresh.getRound(id).ticketRevenue, 0, "work seat does not buy a ticket");
-        assertEq(fresh.getRound(id).totalWeight, 1);
+        assertEq(fresh.getRound(id).totalWeight, 10_000); // one flat seat, in BPS units
+
+        // contracts-6 (audit 2026-11-11): a +50% reputation seat weighs 1.5 flat seats, not 1.
+        bytes32 boostedId = keccak256("home-hub:agent-b");
+        bytes memory boosted = _workSigOn(fresh, agentB, boostedId, id, 15_000, expiry);
+        vm.prank(agentB);
+        fresh.enterFromWork(id, boostedId, 15_000, expiry, boosted);
+        assertEq(fresh.getRound(id).totalWeight, 25_000);
     }
 
     function _workSigOn(
@@ -947,7 +954,7 @@ contract AIAgentLotteryTest is Test {
         lot.setPaidTicketsEnabled(true);
         _buy(agentA, id, 1);
         assertEq(lot.participantsCount(id), 2);
-        assertEq(lot.getRound(id).totalWeight, 2);
+        assertEq(lot.getRound(id).totalWeight, 20_000); // two flat units, in BPS units
         assertEq(lot.getRound(id).ticketRevenue, PRICE);
     }
 
@@ -959,4 +966,33 @@ contract AIAgentLotteryTest is Test {
         lot.setPaidTicketsEnabled(false);
         assertFalse(lot.paidTicketsEnabled());
     }
+
+    // ── audit 2026-11-11 ──────────────────────────────────────────────────────
+
+    /// contracts-3: an Open round the operator never closed has an exit after the delay.
+    function test_an_abandoned_open_round_can_be_cancelled_and_refunded() public {
+        uint256 id = _open();
+        _buy(agentA, id, 1);
+        vm.deal(address(this), 1 ether);
+        lot.fund{value: 0.1 ether}(id, 0.1 ether);
+        vm.warp(uint256(lot.getRound(id).entriesClose) + lot.STALL_CANCEL_DELAY() + 1);
+        vm.prank(agentB);
+        lot.cancelStalledRound(id); // anyone
+        uint256 before = address(this).balance;
+        lot.refund(id);
+        assertEq(address(this).balance - before, 0.1 ether);
+    }
+
+    /// contracts-5: no funding after entries close.
+    function test_fund_is_refused_after_entries_close() public {
+        uint256 id = _open();
+        _buy(agentA, id, 1);
+        vm.warp(uint256(lot.getRound(id).entriesClose) + 1);
+        vm.deal(agentA, 1 ether);
+        vm.prank(agentA);
+        vm.expectRevert(AIAgentLottery.EntriesNotOpen.selector);
+        lot.fund{value: 0.1 ether}(id, 0.1 ether);
+    }
+
+    receive() external payable {}
 }

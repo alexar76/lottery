@@ -398,8 +398,12 @@ contract AIAgentLottery is AccessControlDefaultAdminRules, Pausable, ReentrancyG
         if (r.status != Status.Open) revert EntriesNotOpen();
         if (block.timestamp > r.entriesClose) revert EntriesNotOpen();
 
-        weight = (count * weightBps) / BPS;
-        if (weight == 0) weight = count; // never below flat weight
+        // Weight in basis-point units (one flat ticket = BPS). Dividing by BPS here truncated a
+        // +50% LUMEN bonus on a single seat to nothing (1 × 15000 / 10000 = 1): the advertised
+        // reputation boost did not exist for one ticket (audit 2026-11-11, contracts-6). Only the
+        // ratios between weights decide the draw, so the unit is free to change.
+        weight = count * weightBps;
+        if (weight < count * BPS) weight = count * BPS; // never below flat weight
         r.totalWeight += weight;
         if (received > 0) {
             r.ticketRevenue += received;
@@ -424,6 +428,10 @@ contract AIAgentLottery is AccessControlDefaultAdminRules, Pausable, ReentrancyG
         // out-competed, which is the precise thing the cap is there to prevent. A late tithe
         // belongs to the next round.
         if (r.status != Status.Open) revert WrongStatus();
+        // And only while entries are open: between entriesClose and the operator's closeEntries
+        // the round is still Open, and the same sole-entrant cap raise was possible there
+        // (audit 2026-11-11, contracts-5).
+        if (block.timestamp > r.entriesClose) revert EntriesNotOpen();
         uint256 amt = _pullPayment(amount);
         r.funding += amt;
         totalFunding += amt;
@@ -740,10 +748,19 @@ contract AIAgentLottery is AccessControlDefaultAdminRules, Pausable, ReentrancyG
     ///      blocks, plus at most MAX_RESEEDS rescues that each re-arm `closedAt`), so
     ///      this can never cancel a round that is still drawable. Not gated by
     ///      Pausable: pausing must not be able to trap entries either.
+    ///      An OPEN round whose entries closed STALL_CANCEL_DELAY ago and that the operator never
+    ///      moved to Drawing is cancellable the same way: closeEntries is operator-only, so an
+    ///      operator that stopped (lost key, paused relayer) left tickets and sponsor funding with
+    ///      no exit at all (audit 2026-11-11, contracts-3; the Solana program already allows it).
     function cancelStalledRound(uint256 roundId) external {
         Round storage r = _rounds[roundId];
-        if (r.status != Status.Drawing) revert WrongStatus();
-        if (block.timestamp < uint256(r.closedAt) + STALL_CANCEL_DELAY) revert TooEarly();
+        if (r.status == Status.Drawing) {
+            if (block.timestamp < uint256(r.closedAt) + STALL_CANCEL_DELAY) revert TooEarly();
+        } else if (r.status == Status.Open) {
+            if (block.timestamp < uint256(r.entriesClose) + STALL_CANCEL_DELAY) revert TooEarly();
+        } else {
+            revert WrongStatus();
+        }
         r.status = Status.Cancelled;
         emit RoundCancelled(roundId);
     }

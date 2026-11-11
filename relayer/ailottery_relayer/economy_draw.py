@@ -28,8 +28,11 @@ from .abi import (
     RESEED_COOLDOWN,
     SEED_LIFETIME_BLOCKS,
     STALL_CANCEL_DELAY,
+    STATUS_CANCELLED,
     STATUS_DRAWING,
     STATUS_OPEN,
+    STATUS_SETTLED,
+    UNCLAIMED_PRIZE_TTL,
 )
 from .log import get_logger
 from .oracles import PRICE, OracleUnavailable
@@ -97,6 +100,121 @@ def defer_stalled(engine: EconomyEngine, rid: int) -> None:
     if rid not in engine.stalled_rounds:
         engine.stalled_rounds.append(rid)
         log.warning("round %s left unresolved — queued for the stalled-round sweep", rid)
+
+
+PAYOUT_SWEEP_LOOKBACK = 200      # rounds re-examined after a restart
+PAYOUT_SWEEP_INTERVAL_S = 3_600  # one pass an hour: a few RPC reads per round and key
+
+
+def sweep_payouts(engine: EconomyEngine, *, force: bool = False) -> dict:
+    """Collect what the contract owes wallets this relayer holds keys for.
+
+    Audit 2026-11-11 (satellites-3/4): the relayer claimed a prize only in the cycle that
+    drew it, only for a key in its funded-key list, and never again. With auto-wallet the
+    winners are the roster's derived wallets, whose keys only the relayer holds, so their
+    prizes were never claimed; and nothing ever pulled `refund` for the sponsor, benefactor
+    or agent keys after a cancel. Pull payments that nobody pulls sit in the contract.
+
+    Per round since the last pass (the last PAYOUT_SWEEP_LOOKBACK after a restart):
+      * Settled, prize unclaimed, winner's key held → claimPrize with that key;
+      * Settled, prize unclaimed, past UNCLAIMED_PRIZE_TTL → forfeitUnclaimedPrize, which
+        recycles it into a later round's pool (nobody can withdraw it);
+      * Cancelled → refund(rid) with every held key the contract still owes.
+    A failure is logged and retried by the next pass; the cursor only moves past rounds
+    that need nothing more from us.
+    """
+    now = time.time()
+    if not force and now - getattr(engine, "_payouts_swept_at", 0.0) < PAYOUT_SWEEP_INTERVAL_S:
+        return {}
+    engine._payouts_swept_at = now
+    done = {"claimed": 0, "refunded": 0, "forfeited": 0, "failed": 0}
+    try:
+        head = int(engine.chain.current_round_id())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("payout sweep: current round unreadable: %s", exc)
+        return done
+    keys = engine.held_keys()
+    forfeit_due: dict[int, int] = getattr(engine, "_forfeit_due", None) or {}
+    engine._forfeit_due = forfeit_due
+    chain_now = int(engine.chain.block()["timestamp"])
+    for rid, due in sorted(forfeit_due.items()):
+        if chain_now < due:
+            continue
+        try:
+            r = engine.chain.get_round(rid)
+            if int(r["status"]) == STATUS_SETTLED and not r["prizeClaimed"]:
+                engine.chain.send(engine.fn.forfeitUnclaimedPrize(rid), engine.operator_key)
+                done["forfeited"] += 1
+            forfeit_due.pop(rid, None)
+        except Exception as exc:  # noqa: BLE001
+            done["failed"] += 1
+            log.warning("payout sweep: forfeit of round %s failed: %s", rid, exc)
+    start = max(1, int(getattr(engine, "_payout_cursor", 0) or head - PAYOUT_SWEEP_LOOKBACK))
+    resolved_through = start - 1
+    pending_seen = False
+    for rid in range(start, head + 1):
+        try:
+            r = engine.chain.get_round(rid)
+            status = int(r["status"])
+            if status == STATUS_SETTLED and not r["prizeClaimed"]:
+                pending_seen |= not _settle_unclaimed(engine, rid, r, keys, done)
+            elif status == STATUS_CANCELLED:
+                pending_seen |= not _refund_held(engine, rid, keys, done)
+            elif status != STATUS_SETTLED:
+                pending_seen = True        # open or drawing: look again next pass
+        except Exception as exc:  # noqa: BLE001
+            done["failed"] += 1
+            pending_seen = True
+            log.warning("payout sweep: round %s failed: %s", rid, exc)
+        if not pending_seen:
+            resolved_through = rid
+    engine._payout_cursor = resolved_through + 1
+    if any(done.values()):
+        log.info("payout sweep %s..%s: %s", start, head, done)
+    return done
+
+
+def _settle_unclaimed(engine: EconomyEngine, rid: int, r: dict, keys: dict, done: dict) -> bool:
+    """Claim a prize we hold the winner's key for; queue anyone else's for its forfeit date.
+
+    Returns True when the round needs nothing more from the scan (a claim that raises is
+    retried by the next pass). Someone else's prize leaves the scan at once: its forfeit,
+    180 days out, waits in ``engine._forfeit_due`` instead of pinning the cursor.
+    """
+    winner = str(r["winner"] or "")
+    key = keys.get(winner.lower())
+    if key:
+        engine.chain.send(engine.fn.claimPrize(rid), key)
+        engine._event(engine._name(winner), "claim", "lottery", engine.cfg.wei_to_usd(r["prizePool"]))
+        done["claimed"] += 1
+        return True
+    anchor = int(engine.fn.settledAt(rid).call() or 0)
+    if not anchor:
+        return True    # the contract refuses a forfeit without its anchor
+    due = anchor + UNCLAIMED_PRIZE_TTL
+    if int(engine.chain.block()["timestamp"]) >= due:
+        engine.chain.send(engine.fn.forfeitUnclaimedPrize(rid), engine.operator_key)
+        done["forfeited"] += 1
+    else:
+        engine._forfeit_due[rid] = due
+    return True
+
+
+def _refund_held(engine: EconomyEngine, rid: int, keys: dict, done: dict) -> bool:
+    ok = True
+    for addr, key in keys.items():
+        try:
+            owed = int(engine.fn.paidBy(rid, Web3.to_checksum_address(addr)).call() or 0) \
+                + int(engine.fn.fundedBy(rid, Web3.to_checksum_address(addr)).call() or 0)
+            if owed > 0:
+                engine.chain.send(engine.fn.refund(rid), key)
+                engine._event(engine._name(addr), "refund", f"round {rid}", engine.cfg.wei_to_usd(owed))
+                done["refunded"] += 1
+        except Exception as exc:  # noqa: BLE001
+            ok = False
+            done["failed"] += 1
+            log.warning("payout sweep: refund of round %s for %s failed: %s", rid, addr[:10], exc)
+    return ok
 
 
 def sweep_stalled_rounds(engine: EconomyEngine, rounds: list[int]) -> list[int]:

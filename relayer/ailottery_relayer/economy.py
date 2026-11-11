@@ -11,6 +11,7 @@ the Hub's routing-fee revenue funds the tithe (defense: only its bound lottery).
 """
 from __future__ import annotations
 
+import contextlib
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -27,6 +28,7 @@ from .economy_draw import (
     ensure_settleable_seed,
     preflight_draw_window,
     safe_cancel,
+    sweep_payouts,
     sweep_stalled_rounds,
 )
 from .log import get_logger
@@ -321,6 +323,12 @@ class EconomyEngine:
         # Rounds abandoned mid-draw belong to the OLD contract; their ids mean something
         # different (or nothing) on the new one, so sweeping them would cancel strangers.
         self.stalled_rounds = []
+        # The payout sweep's cursor and forfeit queue are round ids of the OLD contract too: on
+        # the new one they pointed past every round, so the sweep went silent (review of
+        # 2026-11-11). Start over: the next pass scans the new contract's lookback window.
+        self._payout_cursor = 0
+        self._forfeit_due = {}
+        self._payouts_swept_at = 0.0
         log.warning("re-bound lottery %s → %s (sponsor binding ok=%s: %s)",
                     old, self.chain.address, self.binding.ok, self.binding.reason)
         self._event("operator", "rebind", f"lottery {self.chain.address}", 0)
@@ -597,16 +605,37 @@ class EconomyEngine:
         log.info("round %s drawn — winner %s, prize $%.4f", rid, self.last_winner, prize_usd)
         return True
 
+    def held_keys(self) -> dict[str, str]:
+        """Every wallet this relayer signs for, lower-case address → key.
+
+        The funded agent keys, the sponsor, benefactor and operator, and every roster wallet
+        it has derived (auto-wallet / work seats). Derived keys are remembered across roster
+        refreshes, so a winner who left the Mesh still gets its prize claimed.
+        """
+        out: dict[str, str] = dict(getattr(self, "_derived_keys", {}) or {})
+        for p in self._roster:
+            if p.key and p.addr:
+                out[p.addr.lower()] = p.key
+        for key in [*self.agent_keys, self.sponsor_key, self.benefactor_key, self.operator_key]:
+            if key:
+                with contextlib.suppress(Exception):
+                    out[Account.from_key(key).address.lower()] = key
+        self._derived_keys = {a: k for a, k in out.items()}
+        return out
+
     def settle(self, rid: int) -> None:
         r = self.chain.get_round(rid)
         winner = r["winner"]
-        key = self._key_by_addr.get(winner)
+        # Any wallet we sign for, derived roster wallets included: the funded-key list alone
+        # missed every auto-wallet winner (audit 2026-11-11, satellites-3). A failed claim is
+        # retried by sweep_payouts.
+        key = self.held_keys().get(str(winner or "").lower())
         if key and not r["prizeClaimed"]:
             try:
                 self.chain.send(self.fn.claimPrize(rid), key)
                 self._event(self._name(winner), "claim", "lottery", self.cfg.wei_to_usd(r["prizePool"]))
             except Exception as exc:
-                log.warning("claim failed: %s", exc)
+                log.warning("claim failed (the payout sweep retries it): %s", exc)
 
         # ── AI Treasurer manages this round's opex bucket ────────────────────────
         # opex is a capped, segregated share of TOTAL income; the treasurer allocates
@@ -713,6 +742,13 @@ class EconomyEngine:
         # fresh entries behind it — those rounds hold real tickets and sponsor
         # funding, and no other component revisits them.
         self.stalled_rounds = sweep_stalled_rounds(self, self.stalled_rounds)
+        # Prizes our wallets won, refunds our keys are owed after a cancel, prizes past their
+        # claim TTL: pull payments nobody else pulls (hourly; see sweep_payouts). Never lets a
+        # failure here stop the round loop.
+        try:
+            sweep_payouts(self)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("payout sweep failed: %s", exc)
         # Fail closed BEFORE selling tickets: a draw delay the seed cannot outlive
         # would make every round undrawable, and players would be paying into it.
         if not preflight_draw_window(self):

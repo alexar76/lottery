@@ -181,7 +181,7 @@ class TestAfterTheDraw:
     def test_a_cancelled_work_seat_has_nothing_to_refund(self):
         assert self._follow(STATUS_CANCELLED, paid=False) == (True, [], [])
 
-    def test_a_refund_that_reverts_is_reported_once_and_dropped(self):
+    def test_a_refund_that_reverts_when_nothing_is_owed_any_more_is_dropped(self):
         done, sent, said = self._follow(STATUS_CANCELLED, revert={"refund"})
         assert done is True
         assert sent == [("refund", 0)]
@@ -194,3 +194,76 @@ class TestAfterTheDraw:
     def test_a_lost_or_already_claimed_round_sends_nothing(self):
         assert self._follow(STATUS_SETTLED)[:2] == (True, [])
         assert self._follow(STATUS_SETTLED, winner=ME, claimed=True)[:2] == (True, [])
+
+
+# ── audit 2026-11-11, satellites-5 ────────────────────────────────────────────
+def _owing(lottery, owed: dict):
+    lottery.functions.paidBy = lambda rid, a: _View(lambda: owed.get(rid, 0))
+    return lottery
+
+
+class TestNothingOwedIsDropped:
+    def test_a_refund_that_reverts_while_still_owed_is_retried_after_backoff(self):
+        from ailottery_agent.__main__ import FOLLOW_BACKOFF_S
+
+        lottery = _owing(FakeLottery(rounds={7: _round(STATUS_CANCELLED)}), {7: 2 * PRICE})
+        clock = [1000.0]
+        state, said = {}, []
+        failing = Chain(revert={"refund"})
+        assert follow_up(lottery, 7, address=ME, paid=True, send=failing.send, say=said.append,
+                         state=state, now=lambda: clock[0]) is False
+        assert any("retrying" in line for line in said)
+        assert follow_up(lottery, 7, address=ME, paid=True, send=failing.send, say=said.append,
+                         state=state, now=lambda: clock[0]) is False
+        assert failing.sent == [("refund", 0)], "nothing is resent inside the backoff"
+        clock[0] += FOLLOW_BACKOFF_S
+        ok = Chain()
+        assert follow_up(lottery, 7, address=ME, paid=True, send=ok.send, say=said.append,
+                         state=state, now=lambda: clock[0]) is True
+        assert ok.sent == [("refund", 0)]
+
+    def test_a_claim_that_keeps_reverting_is_given_up_after_the_limit(self):
+        from ailottery_agent.__main__ import MAX_FOLLOW_TRIES
+
+        lottery = FakeLottery(rounds={7: _round(STATUS_SETTLED, ME, False)})
+        chain, state, said, clock = Chain(revert={"claimPrize"}), {}, [], [0.0]
+        results = []
+        for _ in range(MAX_FOLLOW_TRIES):
+            results.append(follow_up(lottery, 7, address=ME, paid=True, send=chain.send,
+                                     say=said.append, state=state, now=lambda: clock[0]))
+            clock[0] += 10**6
+        assert results == [False] * (MAX_FOLLOW_TRIES - 1) + [True]
+        assert len(chain.sent) == MAX_FOLLOW_TRIES and "giving up" in said[-1]
+
+    def test_tickets_already_bought_are_not_bought_again(self):
+        lottery = _owing(FakeLottery(paid=True), {7: 2 * PRICE})
+        chain, said = Chain(), []
+        paid, _ = _enter(lottery, chain, said=said)
+        assert paid is True and chain.sent == []
+        assert any("already bought" in line for line in said)
+
+    def test_a_restart_recovers_a_won_prize_and_a_refund(self):
+        from ailottery_agent.__main__ import recover_rounds
+
+        rounds = {5: _round(STATUS_SETTLED, ME, False), 6: _round(STATUS_CANCELLED),
+                  7: _round(STATUS_SETTLED, OTHER, False), 8: _round(STATUS_OPEN)}
+        lottery = _owing(FakeLottery(rounds=rounds), {6: PRICE})
+        lottery.functions.currentRoundId = lambda: _View(lambda: 8)
+        lottery.rounds.update({r: _round(STATUS_OPEN) for r in range(1, 5)})
+        assert recover_rounds(lottery, ME) == ({5, 6}, {6})
+
+    def test_a_restart_before_the_draw_recovers_the_rounds_the_agent_is_in(self):
+        """Review of 2026-11-11: a round paid into (or work-seated) and still Open past its
+        entries, or Drawing, was skipped by the recovery and never followed up."""
+        from ailottery_agent.__main__ import STATUS_DRAWING, recover_rounds
+
+        rounds = {r: _round(STATUS_OPEN) for r in range(1, 10)}   # entriesClose 0: closed
+        rounds[9] = _round(STATUS_DRAWING)
+        lottery = _owing(FakeLottery(rounds=rounds, paid=False, seated=False), {8: PRICE})
+        lottery.functions.currentRoundId = lambda: _View(lambda: 9)
+        seated = {9}
+        lottery.functions.workSeated = lambda rid, a: _View(lambda: rid in seated)
+        assert recover_rounds(lottery, ME, now=1_000) == ({8, 9}, {8})
+        # an Open round still taking entries is left to the main loop
+        assert recover_rounds(lottery, ME, now=None) == ({9}, set())
+

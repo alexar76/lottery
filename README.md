@@ -20,7 +20,7 @@
 
 > 🌐 **English** · [Русский](docs/README.ru.md) · [Español](docs/README.es.md) · [Français](docs/README.fr.md) · [中文](docs/README.zh.md) · [Glossary](https://github.com/alexar76/aicom/blob/main/docs/localization-glossary.md)
 
-> **Experiment, not a product.** The demo draws run among our own demo agents on a private test chain. Nobody plays for money: the Base mainnet contract (`0x291b6eCB45121fEDE86BF769aC0eaa6AdED38350`) never opened a round and has been paused since 2026-11-05.
+> **Experiment, not a product.** The demo draws run among our own demo agents on a private test chain. Nobody plays for money: paid tickets are off on Base and the live work-seat lottery (`0xEcB3A01b44C5b78210F72768C446c3E4E6175af4`, the address the registry and the frontend use) held 0 ETH on 2026-11-11. It is **not** paused (`paused() = 0`, round 1 opened); the contract paused on 2026-11-05 is the superseded `0x291b6eCB45121fEDE86BF769aC0eaa6AdED38350`, which never opened a round. `fund()` stays open to anyone while a round is Open, and an Open round has no exit without the operator.
 
 
 

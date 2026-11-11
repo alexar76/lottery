@@ -48,6 +48,8 @@ ABI = [
      "inputs": [{"name": "roundId", "type": "uint256"}], "outputs": []},
     {"type": "function", "name": "refund", "stateMutability": "nonpayable",
      "inputs": [{"name": "roundId", "type": "uint256"}], "outputs": []},
+    {"type": "function", "name": "paidBy", "stateMutability": "view",
+     "inputs": [{"type": "uint256"}, {"type": "address"}], "outputs": [{"type": "uint256"}]},
     {"type": "function", "name": "getRound", "stateMutability": "view", "inputs": [{"type": "uint256"}],
      "outputs": [{"type": "tuple", "components": [
          {"name": "status", "type": "uint8"}, {"name": "openedAt", "type": "uint64"},
@@ -60,12 +62,22 @@ ABI = [
          {"name": "randomWord", "type": "uint256"}, {"name": "prizeClaimed", "type": "bool"}]}]},
 ]
 
-STATUS_OPEN, STATUS_SETTLED, STATUS_CANCELLED = 1, 3, 4
+STATUS_OPEN, STATUS_DRAWING, STATUS_SETTLED, STATUS_CANCELLED = 1, 2, 3, 4
 
 #: Attempts at entering one round before the agent waits for the next one. Each failed
 #: attempt can be a mined, reverted transaction; retrying it every POLL seconds for the
 #: whole entry window only fills the chain with failures.
 MAX_ENTRY_TRIES = 3
+
+#: A claim or refund that reverts is retried, with backoff, while the contract still owes it.
+#: Giving up after one revert abandoned the prize or the refund for good (audit 2026-11-11,
+#: satellites-5); a revert can be transient (gas, nonce, a node behind).
+MAX_FOLLOW_TRIES = 5
+FOLLOW_BACKOFF_S = 60
+
+#: Rounds re-read at start: the agent's sets live in memory, and a restart between buying
+#: and the draw used to forget a round it then won (or that was cancelled).
+RECOVER_LOOKBACK = 200
 
 
 class TxReverted(RuntimeError):
@@ -97,6 +109,23 @@ def paid_door_open(lottery) -> bool:
         raise
 
 
+def paid_into(lottery, rid, address) -> int:
+    """What the contract records this agent paid into round `rid` (0 when nothing).
+
+    A contract fake or build without the getter answers 0; a transport error is raised, so
+    a purchase is never repeated on a guess.
+    """
+    getter = getattr(lottery.functions, "paidBy", None)
+    if getter is None:
+        return 0
+    try:
+        return int(getter(rid, address).call() or 0)
+    except ContractLogicError as exc:
+        if _reverted_without_data(exc):
+            return 0
+        raise
+
+
 def enter_round(lottery, rid, *, address, tickets, send, fetch_voucher, fetch_work_seat,
                 say=_say) -> bool:
     """Enter open round `rid` through the door the contract has. True when the agent paid."""
@@ -114,6 +143,11 @@ def enter_round(lottery, rid, *, address, tickets, send, fetch_voucher, fetch_wo
             ))
         say(f"agent: round {rid} — entered with a Hub work seat")
         return False
+    # A purchase whose receipt timed out after the broadcast was mined anyway: the next poll
+    # bought a second batch (satellites-5). The contract's own record decides.
+    if paid_into(lottery, rid, address) > 0:
+        say(f"agent: round {rid} — tickets already bought")
+        return True
     price = lottery.functions.ticketPrice().call()
     v = fetch_voucher(rid)
     if v:
@@ -130,21 +164,27 @@ def enter_round(lottery, rid, *, address, tickets, send, fetch_voucher, fetch_wo
     return True
 
 
-def follow_up(lottery, rid, *, address, paid, send, say=_say) -> bool:
+def follow_up(lottery, rid, *, address, paid, send, say=_say, state=None, now=time.time) -> bool:
     """Claim a won prize or take back a cancelled round's tickets.
 
-    True once the round needs nothing more from the agent. A claim or refund that
-    reverts is reported once and not retried every poll.
+    True once the round needs nothing more from the agent. A claim or refund that reverts
+    is re-read: if the contract no longer owes it, the round is done; if it still does, it
+    is retried with backoff up to MAX_FOLLOW_TRIES (``state`` carries the count between
+    polls). One revert used to drop the prize or the refund for good.
     """
+    st = state if state is not None else {}
+    if st.get("next", 0.0) > now():
+        return False
     r = lottery.functions.getRound(rid).call()
     status, prize, winner, claimed = r[0], r[12], r[13], r[15]
     if status == STATUS_SETTLED:
-        if winner == address and not claimed:
+        if str(winner).lower() == str(address).lower() and not claimed:
             try:
                 send(lottery.functions.claimPrize(rid))
                 say(f"agent: 🏆 WON round {rid} — claimed {prize} wei")
             except TxReverted as exc:
-                say(f"agent: round {rid} — claimPrize reverted ({exc})")
+                return _after_revert(st, rid, "claimPrize", exc, say, now,
+                                     owed=lambda: not lottery.functions.getRound(rid).call()[15])
         return True
     if status == STATUS_CANCELLED:
         if paid:
@@ -152,9 +192,69 @@ def follow_up(lottery, rid, *, address, paid, send, say=_say) -> bool:
                 send(lottery.functions.refund(rid))
                 say(f"agent: round {rid} was cancelled — tickets refunded")
             except TxReverted as exc:
-                say(f"agent: round {rid} was cancelled — refund reverted ({exc})")
+                return _after_revert(st, rid, "refund", exc, say, now,
+                                     owed=lambda: paid_into(lottery, rid, address) > 0)
         return True
     return False
+
+
+def _after_revert(st: dict, rid, what: str, exc, say, now, *, owed) -> bool:
+    st["tries"] = st.get("tries", 0) + 1
+    try:
+        still = owed()
+    except Exception:  # noqa: BLE001 — unknown: keep it
+        still = True
+    if not still:
+        say(f"agent: round {rid} — {what} reverted ({exc}); nothing is owed any more")
+        return True
+    if st["tries"] >= MAX_FOLLOW_TRIES:
+        say(f"agent: round {rid} — {what} reverted {st['tries']} times ({exc}); giving up")
+        return True
+    wait = FOLLOW_BACKOFF_S * 2 ** (st["tries"] - 1)
+    st["next"] = now() + wait
+    label = "refund reverted" if what == "refund" else f"{what} reverted"
+    say(f"agent: round {rid} — {label} ({exc}); retrying in {wait} s")
+    return False
+
+
+def recover_rounds(lottery, address, *, lookback=RECOVER_LOOKBACK,
+                   now: int | None = None) -> tuple[set[int], set[int]]:
+    """Rounds the chain says this agent is still owed something in, or may be: (to follow, paid).
+
+    A round not yet drawn counts when the agent is in it (it paid, or holds a work seat) and
+    the main loop can no longer reach it: Drawing, or Open past its entries (``now`` is the
+    chain's time). A restart between buying and the draw is exactly the case to recover
+    (review of 2026-11-11). An Open round still taking entries is the main loop's: its
+    paid/work-seat checks find the agent's entry there.
+    """
+    follow: set[int] = set()
+    paid: set[int] = set()
+    current = int(lottery.functions.currentRoundId().call() or 0)
+    for rid in range(max(1, current - lookback), current + 1):
+        r = lottery.functions.getRound(rid).call()
+        status, winner, claimed = r[0], r[13], r[15]
+        if status == STATUS_SETTLED and str(winner).lower() == str(address).lower() and not claimed:
+            follow.add(rid)
+        elif status == STATUS_CANCELLED and paid_into(lottery, rid, address) > 0:
+            follow.add(rid)
+            paid.add(rid)
+        elif status == STATUS_DRAWING or (status == STATUS_OPEN and now is not None and now > int(r[2])):
+            if paid_into(lottery, rid, address) > 0:
+                follow.add(rid)
+                paid.add(rid)
+            elif _work_seated(lottery, rid, address):
+                follow.add(rid)
+    return follow, paid
+
+
+def _work_seated(lottery, rid, address) -> bool:
+    getter = getattr(lottery.functions, "workSeated", None)
+    if getter is None:
+        return False
+    try:
+        return bool(getter(rid, address).call())
+    except ContractLogicError:
+        return False
 
 
 def _addr() -> str:
@@ -247,6 +347,16 @@ def main() -> None:
     paid: set[int] = set()
     done: set[int] = set()
     tries: dict[int, int] = {}
+    follow_state: dict[int, dict] = {}
+    try:
+        owed, owed_paid = recover_rounds(lottery, acct.address,
+                                         now=int(w3.eth.get_block("latest")["timestamp"]))
+        entered |= owed
+        paid |= owed_paid
+        if owed:
+            _say(f"agent: still owed something in rounds {sorted(owed)} — following them up")
+    except Exception as exc:  # noqa: BLE001
+        _say(f"agent: could not re-read earlier rounds ({exc})")
     while True:
         try:
             rid = lottery.functions.currentRoundId().call()
@@ -266,7 +376,8 @@ def main() -> None:
                              + (f"{left} more tries" if left else "waiting for the next round"))
             # claim any won prize, take back cancelled rounds' tickets
             for r_id in sorted(entered - done):
-                if follow_up(lottery, r_id, address=acct.address, paid=r_id in paid, send=send):
+                if follow_up(lottery, r_id, address=acct.address, paid=r_id in paid, send=send,
+                             state=follow_state.setdefault(r_id, {})):
                     done.add(r_id)
         except Exception as exc:
             _say(f"agent: {exc}")

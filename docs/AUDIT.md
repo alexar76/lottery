@@ -70,7 +70,7 @@ deeper soundness margin + decentralization + an external sign-off:
    rests on the pinned block's `blockhash` being outside the operator's control. A
    validator/sequencer that proposes the exact pinned block, or an operator colluding
    with one, retains the standard single-slot influence over that hash — treat
-   `blockhash` as weak on L2 sequencers and prefer `onchainVdf=true` for value. The
+   `blockhash` as weak on L2 sequencers. Do **not** turn on `onchainVdf=true` for value: the word is derived from a prover-chosen `y` with an `l` that is not Fiat-Shamir-bound on chain, so the beacon signer can grind the output and pick the winner (audit 2026-11-11, contracts-1); it stays off until `T`, `N` and `l = H(g, y, T)` are bound on chain. The
    irreducible operator lever: it alone produces the beacon, so it can compute the
    outcome privately, never publish, and let the round die into a refund — slow, costs a
    full seed window, refunds everyone and earns nothing, but it is the last word on

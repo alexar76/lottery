@@ -101,6 +101,7 @@ def _engine(code_at: set[str], cfg: Config, address: str) -> SimpleNamespace:
             return_value=SimpleNamespace(ok=True, address=None, reason="stub"))),
         binding=SimpleNamespace(ok=True, address=DEAD, reason="startup"),
         stalled_rounds=[3, 4],
+        _payout_cursor=812, _forfeit_due={790: 1}, _payouts_swept_at=99.0,
         contract_live=True,
         _last_address_check=0.0,
         _event=MagicMock(),
@@ -130,6 +131,8 @@ def test_rebinds_when_the_chain_redeployed_the_lottery(tmp_path):
     stub.sponsor.resolve_bound.assert_called_once()
     # rounds abandoned on the dead contract mean nothing on the new one
     assert stub.stalled_rounds == []
+    # ...and neither do the payout sweep's cursor and forfeit queue (review of 2026-11-11)
+    assert (stub._payout_cursor, stub._forfeit_due, stub._payouts_swept_at) == (0, {}, 0.0)
     assert stub.contract_live is True
 
 
