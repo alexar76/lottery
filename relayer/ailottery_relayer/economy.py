@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 
 from eth_account import Account
 from web3 import Web3
+from web3.exceptions import ContractLogicError
 
 from .chain import Chain
 from .eligibility import participant_id
@@ -306,6 +307,25 @@ class EconomyEngine:
         code = self.chain.w3.eth.get_code(Web3.to_checksum_address(addr))
         return bool(code) and len(code) > 0
 
+    # keccak("currentRoundId()")[:4]
+    _LOTTERY_PROBE = "0x9cbe5efd"
+
+    def _is_lottery(self, addr: str) -> bool:
+        """Code at the address AND it answers currentRoundId(); a revert means some other contract.
+
+        Code alone was the old test. On 2026-11-14 the UNI relayer had re-bound to the NFT,
+        which the bubble's bootstrap had saved as the lottery: it has code, so the relayer kept
+        it and every round reverted (577k failures since 2026-11-01 or earlier). A failed RPC
+        still raises, so the caller keeps telling a blip from a redeploy.
+        """
+        if not self._has_code(addr):
+            return False
+        try:
+            out = self.chain.w3.eth.call({"to": Web3.to_checksum_address(addr), "data": self._LOTTERY_PROBE})
+        except (ContractLogicError, ValueError):
+            return False
+        return len(out) == 32
+
     def _rebind(self, addr: str) -> None:
         old = self.chain.address
         self.chain = Chain(self.cfg.rpc_url, self.cfg.chain_id, addr,
@@ -352,7 +372,7 @@ class EconomyEngine:
             return True
         self._last_address_check = now
         try:
-            if self._has_code(self.chain.address):
+            if self._is_lottery(self.chain.address):
                 self.contract_live = True
                 return True
         except Exception as exc:
@@ -360,13 +380,13 @@ class EconomyEngine:
             log.warning("lottery code check failed (%s) — keeping %s", exc, self.chain.address)
             return True
 
-        log.error("no contract code at %s — the chain redeployed the lottery under us",
-                  self.chain.address)
+        log.error("no lottery at %s (no code, or currentRoundId() reverts) — the chain "
+                  "redeployed the lottery under us", self.chain.address)
         for cand in self.cfg.address_candidates():
             if cand.lower() == self.chain.address.lower():
                 continue
             try:
-                if not self._has_code(cand):
+                if not self._is_lottery(cand):
                     continue
             except Exception:
                 continue

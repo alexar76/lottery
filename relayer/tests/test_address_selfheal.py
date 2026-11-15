@@ -86,16 +86,27 @@ def test_candidates_put_the_operator_env_first_then_the_file(tmp_path):
 
 
 # ── re-binding mid-flight ─────────────────────────────────────────────────────────────
-def _engine(code_at: set[str], cfg: Config, address: str) -> SimpleNamespace:
-    """An engine stub with just enough surface for the address guard."""
+def _engine(code_at: set[str], cfg: Config, address: str,
+            not_lottery: set[str] = frozenset()) -> SimpleNamespace:
+    """An engine stub with just enough surface for the address guard.
+
+    Every address in `code_at` holds code; those also in `not_lottery` revert currentRoundId().
+    """
     def get_code(addr):
         return b"\x60\x80" if str(addr).lower() in {a.lower() for a in code_at} else b""
+
+    def call(tx):
+        assert tx["data"] == "0x9cbe5efd"
+        if str(tx["to"]).lower() in {a.lower() for a in not_lottery}:
+            from web3.exceptions import ContractLogicError
+            raise ContractLogicError("execution reverted", data="0x")
+        return (7).to_bytes(32, "big")
 
     return SimpleNamespace(
         cfg=cfg,
         chain=SimpleNamespace(
             address=address,
-            w3=SimpleNamespace(eth=SimpleNamespace(get_code=get_code)),
+            w3=SimpleNamespace(eth=SimpleNamespace(get_code=get_code, call=call)),
         ),
         sponsor=SimpleNamespace(resolve_bound=MagicMock(
             return_value=SimpleNamespace(ok=True, address=None, reason="stub"))),
@@ -111,6 +122,8 @@ def _engine(code_at: set[str], cfg: Config, address: str) -> SimpleNamespace:
 def _bind(stub):
     """Bind the real methods under test to the stub."""
     stub._has_code = lambda addr: EconomyEngine._has_code(stub, addr)
+    stub._LOTTERY_PROBE = EconomyEngine._LOTTERY_PROBE
+    stub._is_lottery = lambda addr: EconomyEngine._is_lottery(stub, addr)
     stub._rebind = lambda addr: EconomyEngine._rebind(stub, addr)
     return stub
 
@@ -134,6 +147,33 @@ def test_rebinds_when_the_chain_redeployed_the_lottery(tmp_path):
     # ...and neither do the payout sweep's cursor and forfeit queue (review of 2026-11-11)
     assert (stub._payout_cursor, stub._forfeit_due, stub._payouts_swept_at) == (0, {}, 0.0)
     assert stub.contract_live is True
+
+
+def test_a_contract_that_is_not_a_lottery_is_left_for_the_one_that_is(tmp_path):
+    """2026-11-14: the UNI relayer had re-bound to the NFT (the bootstrap saved it as the
+    lottery). It has code, so the old guard kept it and every round reverted for two weeks."""
+    nft = "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0"
+    snippet = tmp_path / "hub.env.snippet"
+    snippet.write_text(f"LOTTERY_ADDRESS={LIVE}\nHUB_LOTTERY_ADDRESS={LIVE}\n")
+    cfg = Config(lottery_address=nft, hub_lottery_address=nft, address_file=str(snippet),
+                 rpc_url="http://127.0.0.1:8545", address_recheck_s=0.0)
+    stub = _bind(_engine(code_at={nft, LIVE}, not_lottery={nft}, cfg=cfg, address=nft))
+
+    assert EconomyEngine._ensure_contract_live(stub) is True
+    assert stub.chain.address.lower() == LIVE
+    assert stub.contract_live is True
+
+
+def test_a_candidate_that_is_not_a_lottery_is_never_bound(tmp_path):
+    snippet = tmp_path / "snippet"
+    snippet.write_text(f"LOTTERY_ADDRESS={OTHER}\n")
+    cfg = Config(lottery_address=DEAD, address_file=str(snippet),
+                 rpc_url="http://127.0.0.1:8545", address_recheck_s=0.0)
+    stub = _bind(_engine(code_at={OTHER}, not_lottery={OTHER}, cfg=cfg, address=DEAD))
+
+    assert EconomyEngine._ensure_contract_live(stub) is False
+    assert stub.chain.address == DEAD
+    assert stub.contract_live is False
 
 
 def test_a_stale_env_alone_cannot_redirect_the_hub_binding(tmp_path):
